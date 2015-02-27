@@ -2,6 +2,13 @@
 [travis-img]:  https://travis-ci.org/micropython/micropython.png?branch=master
 [travis-repo]: https://travis-ci.org/micropython/micropython
 
+THIS IS JUST A PERSONAL FORK. PLEASE DO NOT USE IT. 
+===================================================
+
+Go to
+https://github.com/micropython/micropython
+for the real thing
+
 The Micro Python project
 ========================
 <p align="center">
