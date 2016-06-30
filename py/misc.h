@@ -31,6 +31,7 @@
 /** types *******************************************************/
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 typedef unsigned char byte;
@@ -61,19 +62,32 @@ typedef unsigned int uint;
 #else
 #define m_new_obj_with_finaliser(type) m_new_obj(type)
 #endif
+#if MICROPY_MALLOC_USES_ALLOCATED_SIZE
 #define m_renew(type, ptr, old_num, new_num) ((type*)(m_realloc((ptr), sizeof(type) * (old_num), sizeof(type) * (new_num))))
-#define m_renew_maybe(type, ptr, old_num, new_num) ((type*)(m_realloc_maybe((ptr), sizeof(type) * (old_num), sizeof(type) * (new_num))))
+#define m_renew_maybe(type, ptr, old_num, new_num, allow_move) ((type*)(m_realloc_maybe((ptr), sizeof(type) * (old_num), sizeof(type) * (new_num), (allow_move))))
 #define m_del(type, ptr, num) m_free(ptr, sizeof(type) * (num))
-#define m_del_obj(type, ptr) (m_del(type, ptr, 1))
 #define m_del_var(obj_type, var_type, var_num, ptr) (m_free(ptr, sizeof(obj_type) + sizeof(var_type) * (var_num)))
+#else
+#define m_renew(type, ptr, old_num, new_num) ((type*)(m_realloc((ptr), sizeof(type) * (new_num))))
+#define m_renew_maybe(type, ptr, old_num, new_num, allow_move) ((type*)(m_realloc_maybe((ptr), sizeof(type) * (new_num), (allow_move))))
+#define m_del(type, ptr, num) ((void)(num), m_free(ptr))
+#define m_del_var(obj_type, var_type, var_num, ptr) ((void)(var_num), m_free(ptr))
+#endif
+#define m_del_obj(type, ptr) (m_del(type, ptr, 1))
 
 void *m_malloc(size_t num_bytes);
 void *m_malloc_maybe(size_t num_bytes);
 void *m_malloc_with_finaliser(size_t num_bytes);
 void *m_malloc0(size_t num_bytes);
+#if MICROPY_MALLOC_USES_ALLOCATED_SIZE
 void *m_realloc(void *ptr, size_t old_num_bytes, size_t new_num_bytes);
-void *m_realloc_maybe(void *ptr, size_t old_num_bytes, size_t new_num_bytes);
+void *m_realloc_maybe(void *ptr, size_t old_num_bytes, size_t new_num_bytes, bool allow_move);
 void m_free(void *ptr, size_t num_bytes);
+#else
+void *m_realloc(void *ptr, size_t new_num_bytes);
+void *m_realloc_maybe(void *ptr, size_t new_num_bytes, bool allow_move);
+void m_free(void *ptr);
+#endif
 void *m_malloc_fail(size_t num_bytes);
 
 #if MICROPY_MEM_STATS
@@ -88,12 +102,11 @@ size_t m_get_peak_bytes_allocated(void);
 #define MP_ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 // align ptr to the nearest multiple of "alignment"
-#define MP_ALIGN(ptr, alignment) (void*)(((mp_uint_t)(ptr) + ((alignment) - 1)) & ~((alignment) - 1))
+#define MP_ALIGN(ptr, alignment) (void*)(((uintptr_t)(ptr) + ((alignment) - 1)) & ~((alignment) - 1))
 
 /** unichar / UTF-8 *********************************************/
 
 #if MICROPY_PY_BUILTINS_STR_UNICODE
-#include <stdint.h> // only include if we need it
 // with unicode enabled we need a type which can fit chars up to 0x10ffff
 typedef uint32_t unichar;
 #else
@@ -110,10 +123,12 @@ bool unichar_isalpha(unichar c);
 bool unichar_isprint(unichar c);
 bool unichar_isdigit(unichar c);
 bool unichar_isxdigit(unichar c);
+bool unichar_isident(unichar c);
 bool unichar_isupper(unichar c);
 bool unichar_islower(unichar c);
 unichar unichar_tolower(unichar c);
 unichar unichar_toupper(unichar c);
+mp_uint_t unichar_xdigit_value(unichar c);
 mp_uint_t unichar_charlen(const char *str, mp_uint_t len);
 #define UTF8_IS_NONASCII(ch) ((ch) & 0x80)
 #define UTF8_IS_CONT(ch) (((ch) & 0xC0) == 0x80)
@@ -134,6 +149,8 @@ typedef struct _vstr_t {
 void vstr_init(vstr_t *vstr, size_t alloc);
 void vstr_init_len(vstr_t *vstr, size_t len);
 void vstr_init_fixed_buf(vstr_t *vstr, size_t alloc, char *buf);
+struct _mp_print_t;
+void vstr_init_print(vstr_t *vstr, size_t alloc, struct _mp_print_t *print);
 void vstr_clear(vstr_t *vstr);
 vstr_t *vstr_new(void);
 vstr_t *vstr_new_size(size_t alloc);

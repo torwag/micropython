@@ -28,6 +28,8 @@
 
 #include "py/scope.h"
 
+#if MICROPY_ENABLE_COMPILER
+
 scope_t *scope_new(scope_kind_t kind, mp_parse_node_t pn, qstr source_file, mp_uint_t emit_options) {
     scope_t *scope = m_new0(scope_t, 1);
     scope->kind = kind;
@@ -150,58 +152,4 @@ void scope_close_over_in_parents(scope_t *scope, qstr qst) {
     assert(0); // we should have found the variable in one of the parents
 }
 
-#if MICROPY_EMIT_CPYTHON
-#include <stdio.h>
-
-void scope_print_info(scope_t *s) {
-    if (s->kind == SCOPE_MODULE) {
-        printf("code <module>\n");
-    } else if (s->kind == SCOPE_LAMBDA) {
-        printf("code <lambda>\n");
-    } else if (s->kind == SCOPE_LIST_COMP) {
-        printf("code <listcomp>\n");
-    } else if (s->kind == SCOPE_DICT_COMP) {
-        printf("code <dictcomp>\n");
-    } else if (s->kind == SCOPE_SET_COMP) {
-        printf("code <setcomp>\n");
-    } else if (s->kind == SCOPE_GEN_EXPR) {
-        printf("code <genexpr>\n");
-    } else {
-        printf("code %s\n", qstr_str(s->simple_name));
-    }
-    /*
-    printf("var global:");
-    for (int i = 0; i < s->id_info_len; i++) {
-        if (s->id_info[i].kind == ID_INFO_KIND_GLOBAL_EXPLICIT) {
-            printf(" %s", qstr_str(s->id_info[i].qst));
-        }
-    }
-    printf("\n");
-    printf("var name:");
-    for (int i = 0; i < s->id_info_len; i++) {
-        if (s->id_info[i].kind == ID_INFO_KIND_GLOBAL_IMPLICIT) {
-            printf(" %s", qstr_str(s->id_info[i].qst));
-        }
-    }
-    printf("\n");
-    printf("var local:");
-    for (int i = 0; i < s->id_info_len; i++) {
-        if (s->id_info[i].kind == ID_INFO_KIND_LOCAL) {
-            printf(" %s", qstr_str(s->id_info[i].qst));
-        }
-    }
-    printf("\n");
-    printf("var free:");
-    for (int i = 0; i < s->id_info_len; i++) {
-        if (s->id_info[i].kind == ID_INFO_KIND_FREE) {
-            printf(" %s", qstr_str(s->id_info[i].qst));
-        }
-    }
-    printf("\n");
-    */
-    printf("     flags %04x\n", s->scope_flags);
-    printf("     argcount %d\n", s->num_pos_args);
-    printf("     nlocals %d\n", s->num_locals);
-    printf("     stacksize %d\n", s->stack_size);
-}
-#endif
+#endif // MICROPY_ENABLE_COMPILER

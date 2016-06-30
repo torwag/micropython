@@ -111,6 +111,10 @@ STATIC byte *asm_arm_get_cur_to_write_bytes(asm_arm_t *as, int num_bytes_to_writ
     }
 }
 
+uint asm_arm_get_code_pos(asm_arm_t *as) {
+    return as->code_offset;
+}
+
 uint asm_arm_get_code_size(asm_arm_t *as) {
     return as->code_size;
 }
@@ -175,6 +179,12 @@ STATIC uint asm_arm_op_sub_reg(uint rd, uint rn, uint rm) {
     return 0x0400000 | (rn << 16) | (rd << 12) | rm;
 }
 
+STATIC uint asm_arm_op_mul_reg(uint rd, uint rm, uint rs) {
+    // mul rd, rm, rs
+    assert(rd != rm);
+    return 0x0000090 | (rd << 16) | (rs << 8) | rm;
+}
+
 STATIC uint asm_arm_op_and_reg(uint rd, uint rn, uint rm) {
     // and rd, rn, rm
     return 0x0000000 | (rn << 16) | (rd << 12) | rm;
@@ -223,7 +233,7 @@ void asm_arm_entry(asm_arm_t *as, int num_locals) {
         | 1 << ASM_ARM_REG_R8;
 
     // Only adjust the stack if there are more locals than usable registers
-    if(num_locals > 3) {
+    if (num_locals > 3) {
         as->stack_adjust = num_locals * 4;
         // Align stack to 8 bytes
         if (num_locals & 1) {
@@ -243,6 +253,14 @@ void asm_arm_exit(asm_arm_t *as) {
     }
 
     emit_al(as, asm_arm_op_pop(as->push_reglist | (1 << ASM_ARM_REG_PC)));
+}
+
+void asm_arm_push(asm_arm_t *as, uint reglist) {
+    emit_al(as, asm_arm_op_push(reglist));
+}
+
+void asm_arm_pop(asm_arm_t *as, uint reglist) {
+    emit_al(as, asm_arm_op_pop(reglist));
 }
 
 void asm_arm_label_assign(asm_arm_t *as, uint label) {
@@ -328,6 +346,12 @@ void asm_arm_sub_reg_reg_reg(asm_arm_t *as, uint rd, uint rn, uint rm) {
     emit_al(as, asm_arm_op_sub_reg(rd, rn, rm));
 }
 
+void asm_arm_mul_reg_reg_reg(asm_arm_t *as, uint rd, uint rs, uint rm) {
+    // rs and rm are swapped because of restriction rd!=rm
+    // mul rd, rm, rs
+    emit_al(as, asm_arm_op_mul_reg(rd, rm, rs));
+}
+
 void asm_arm_and_reg_reg_reg(asm_arm_t *as, uint rd, uint rn, uint rm) {
     // and rd, rn, rm
     emit_al(as, asm_arm_op_and_reg(rd, rn, rm));
@@ -358,9 +382,9 @@ void asm_arm_asr_reg_reg(asm_arm_t *as, uint rd, uint rs) {
     emit_al(as, 0x1a00050 | (rd << 12) | (rs << 8) | rd);
 }
 
-void asm_arm_ldr_reg_reg(asm_arm_t *as, uint rd, uint rn) {
-    // ldr rd, [rn]
-    emit_al(as, 0x5900000 | (rn << 16) | (rd << 12));
+void asm_arm_ldr_reg_reg(asm_arm_t *as, uint rd, uint rn, uint byte_offset) {
+    // ldr rd, [rn, #off]
+    emit_al(as, 0x5900000 | (rn << 16) | (rd << 12) | byte_offset);
 }
 
 void asm_arm_ldrh_reg_reg(asm_arm_t *as, uint rd, uint rn) {
@@ -373,9 +397,9 @@ void asm_arm_ldrb_reg_reg(asm_arm_t *as, uint rd, uint rn) {
     emit_al(as, 0x5d00000 | (rn << 16) | (rd << 12));
 }
 
-void asm_arm_str_reg_reg(asm_arm_t *as, uint rd, uint rm) {
-    // str rd, [rm]
-    emit_al(as, 0x5800000 | (rm << 16) | (rd << 12));
+void asm_arm_str_reg_reg(asm_arm_t *as, uint rd, uint rm, uint byte_offset) {
+    // str rd, [rm, #off]
+    emit_al(as, 0x5800000 | (rm << 16) | (rd << 12) | byte_offset);
 }
 
 void asm_arm_strh_reg_reg(asm_arm_t *as, uint rd, uint rm) {
@@ -424,12 +448,12 @@ void asm_arm_b_label(asm_arm_t *as, uint label) {
 
 void asm_arm_bl_ind(asm_arm_t *as, void *fun_ptr, uint fun_id, uint reg_temp) {
     // If the table offset fits into the ldr instruction
-    if(fun_id < (0x1000 / 4)) {
+    if (fun_id < (0x1000 / 4)) {
         emit_al(as, asm_arm_op_mov_reg(ASM_ARM_REG_LR, ASM_ARM_REG_PC)); // mov lr, pc
         emit_al(as, 0x597f000 | (fun_id << 2)); // ldr pc, [r7, #fun_id*4]
         return;
     }
-    
+
     emit_al(as, 0x59f0004 | (reg_temp << 12)); // ldr rd, [pc, #4]
     // Set lr after fun_ptr
     emit_al(as, asm_arm_op_add_imm(ASM_ARM_REG_LR, ASM_ARM_REG_PC, 4)); // add lr, pc, #4

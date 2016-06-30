@@ -70,6 +70,7 @@ asm_thumb_t *asm_thumb_new(uint max_num_labels);
 void asm_thumb_free(asm_thumb_t *as, bool free_code);
 void asm_thumb_start_pass(asm_thumb_t *as, uint pass);
 void asm_thumb_end_pass(asm_thumb_t *as);
+uint asm_thumb_get_code_pos(asm_thumb_t *as);
 uint asm_thumb_get_code_size(asm_thumb_t *as);
 void *asm_thumb_get_code(asm_thumb_t *as);
 
@@ -103,6 +104,21 @@ void asm_thumb_op32(asm_thumb_t *as, uint op1, uint op2);
 
 static inline void asm_thumb_it_cc(asm_thumb_t *as, uint cc, uint mask)
     { asm_thumb_op16(as, ASM_THUMB_OP_IT | (cc << 4) | mask); }
+
+// FORMAT 1: move shifted register
+
+#define ASM_THUMB_FORMAT_1_LSL (0x0000)
+#define ASM_THUMB_FORMAT_1_LSR (0x0800)
+#define ASM_THUMB_FORMAT_1_ASR (0x1000)
+
+#define ASM_THUMB_FORMAT_1_ENCODE(op, rlo_dest, rlo_src, offset) \
+    ((op) | ((offset) << 6) | ((rlo_src) << 3) | (rlo_dest))
+
+static inline void asm_thumb_format_1(asm_thumb_t *as, uint op, uint rlo_dest, uint rlo_src, uint offset) {
+    assert(rlo_dest < ASM_THUMB_REG_R8);
+    assert(rlo_src < ASM_THUMB_REG_R8);
+    asm_thumb_op16(as, ASM_THUMB_FORMAT_1_ENCODE(op, rlo_dest, rlo_src, offset));
+}
 
 // FORMAT 2: add/subtract
 
@@ -216,7 +232,7 @@ void asm_thumb_mov_reg_i16(asm_thumb_t *as, uint mov_op, uint reg_dest, int i16_
 
 // these return true if the destination is in range, false otherwise
 bool asm_thumb_b_n_label(asm_thumb_t *as, uint label);
-bool asm_thumb_bcc_n_label(asm_thumb_t *as, int cond, uint label);
+bool asm_thumb_bcc_nw_label(asm_thumb_t *as, int cond, uint label, bool wide);
 bool asm_thumb_bl_label(asm_thumb_t *as, uint label);
 
 void asm_thumb_mov_reg_i32(asm_thumb_t *as, uint reg_dest, mp_uint_t i32_src); // convenience

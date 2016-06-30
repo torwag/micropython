@@ -1,3 +1,4 @@
+print("%%" % ())
 print("=%s=" % 1)
 print("=%s=%s=" % (1, 2))
 print("=%s=" % (1,))
@@ -23,6 +24,7 @@ except TypeError:
 
 print("%s" % True)
 print("%s" % 1)
+print("%.1s" % "ab")
 
 print("%r" % True)
 print("%r" % 1)
@@ -84,3 +86,33 @@ try:
     print("%(foo)*s" % {"foo": "bar"})
 except TypeError:
     print("TypeError")
+
+try:
+    '%(a' % {'a':1}
+except ValueError:
+    print('ValueError')
+
+try:
+    '%.*d %.*d' % (20, 5)
+except TypeError:
+    print('TypeError')
+
+try:
+    a = '%*' % 1
+except (ValueError):
+    print('ValueError')
+
+try:
+    '%c' % 'aa'
+except TypeError:
+    print('TypeError')
+
+try:
+    '%l' % 1
+except ValueError:
+    print('ValueError')
+
+try:
+    'a%' % 1
+except ValueError:
+    print('ValueError')

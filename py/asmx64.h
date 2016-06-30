@@ -78,8 +78,12 @@ asm_x64_t* asm_x64_new(mp_uint_t max_num_labels);
 void asm_x64_free(asm_x64_t* as, bool free_code);
 void asm_x64_start_pass(asm_x64_t *as, uint pass);
 void asm_x64_end_pass(asm_x64_t *as);
+mp_uint_t asm_x64_get_code_pos(asm_x64_t *as);
 mp_uint_t asm_x64_get_code_size(asm_x64_t* as);
 void* asm_x64_get_code(asm_x64_t* as);
+
+void asm_x64_align(asm_x64_t *as, mp_uint_t align);
+void asm_x64_data(asm_x64_t *as, mp_uint_t bytesize, mp_uint_t val);
 
 void asm_x64_nop(asm_x64_t* as);
 void asm_x64_push_r64(asm_x64_t* as, int src_r64);
@@ -90,9 +94,11 @@ void asm_x64_mov_i64_to_r64_optimised(asm_x64_t *as, int64_t src_i64, int dest_r
 void asm_x64_mov_i64_to_r64_aligned(asm_x64_t *as, int64_t src_i64, int dest_r64);
 void asm_x64_mov_r8_to_mem8(asm_x64_t *as, int src_r64, int dest_r64, int dest_disp);
 void asm_x64_mov_r16_to_mem16(asm_x64_t *as, int src_r64, int dest_r64, int dest_disp);
+void asm_x64_mov_r32_to_mem32(asm_x64_t *as, int src_r64, int dest_r64, int dest_disp);
 void asm_x64_mov_r64_to_mem64(asm_x64_t *as, int src_r64, int dest_r64, int dest_disp);
 void asm_x64_mov_mem8_to_r64zx(asm_x64_t *as, int src_r64, int src_disp, int dest_r64);
 void asm_x64_mov_mem16_to_r64zx(asm_x64_t *as, int src_r64, int src_disp, int dest_r64);
+void asm_x64_mov_mem32_to_r64zx(asm_x64_t *as, int src_r64, int src_disp, int dest_r64);
 void asm_x64_mov_mem64_to_r64(asm_x64_t *as, int src_r64, int src_disp, int dest_r64);
 void asm_x64_and_r64_r64(asm_x64_t *as, int dest_r64, int src_r64);
 void asm_x64_or_r64_r64(asm_x64_t *as, int dest_r64, int src_r64);
@@ -101,6 +107,7 @@ void asm_x64_shl_r64_cl(asm_x64_t* as, int dest_r64);
 void asm_x64_sar_r64_cl(asm_x64_t* as, int dest_r64);
 void asm_x64_add_r64_r64(asm_x64_t* as, int dest_r64, int src_r64);
 void asm_x64_sub_r64_r64(asm_x64_t* as, int dest_r64, int src_r64);
+void asm_x64_mul_r64_r64(asm_x64_t* as, int dest_r64, int src_r64);
 void asm_x64_cmp_r64_with_r64(asm_x64_t* as, int src_r64_a, int src_r64_b);
 void asm_x64_test_r8_with_r8(asm_x64_t* as, int src_r64_a, int src_r64_b);
 void asm_x64_setcc_r8(asm_x64_t* as, int jcc_type, int dest_r8);

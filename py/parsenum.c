@@ -28,6 +28,7 @@
 #include <stdlib.h>
 
 #include "py/nlr.h"
+#include "py/parsenumbase.h"
 #include "py/parsenum.h"
 #include "py/smallint.h"
 
@@ -35,16 +36,17 @@
 #include <math.h>
 #endif
 
-STATIC NORETURN void raise(mp_obj_t exc, mp_lexer_t *lex) {
-    // if lex!=NULL then the parser called us and we need to make a SyntaxError with traceback
+STATIC NORETURN void raise_exc(mp_obj_t exc, mp_lexer_t *lex) {
+    // if lex!=NULL then the parser called us and we need to convert the
+    // exception's type from ValueError to SyntaxError and add traceback info
     if (lex != NULL) {
-        ((mp_obj_base_t*)exc)->type = &mp_type_SyntaxError;
+        ((mp_obj_base_t*)MP_OBJ_TO_PTR(exc))->type = &mp_type_SyntaxError;
         mp_obj_exception_add_traceback(exc, lex->source_name, lex->tok_line, MP_QSTR_NULL);
     }
     nlr_raise(exc);
 }
 
-mp_obj_t mp_parse_num_integer(const char *restrict str_, mp_uint_t len, mp_uint_t base, mp_lexer_t *lex) {
+mp_obj_t mp_parse_num_integer(const char *restrict str_, size_t len, int base, mp_lexer_t *lex) {
     const byte *restrict str = (const byte *)str_;
     const byte *restrict top = str + len;
     bool neg = false;
@@ -79,7 +81,7 @@ mp_obj_t mp_parse_num_integer(const char *restrict str_, mp_uint_t len, mp_uint_
     for (; str < top; str++) {
         // get next digit as a value
         mp_uint_t dig = *str;
-        if (unichar_isdigit(dig) && dig - '0' < base) {
+        if (unichar_isdigit(dig) && (int)dig - '0' < base) {
             // 0-9 digit
             dig = dig - '0';
         } else if (base == 16) {
@@ -142,15 +144,23 @@ overflow:
     }
 
 value_error:
-    // if lex!=NULL then the parser called us and we need to make a SyntaxError with traceback
     if (MICROPY_ERROR_REPORTING == MICROPY_ERROR_REPORTING_TERSE) {
-        mp_obj_t exc = mp_obj_new_exception_msg(&mp_type_SyntaxError,
+        mp_obj_t exc = mp_obj_new_exception_msg(&mp_type_ValueError,
             "invalid syntax for integer");
-        raise(exc, lex);
-    } else {
+        raise_exc(exc, lex);
+    } else if (MICROPY_ERROR_REPORTING == MICROPY_ERROR_REPORTING_NORMAL) {
         mp_obj_t exc = mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-            "invalid syntax for integer with base %d: '%s'", base, str_val_start);
-        raise(exc, lex);
+            "invalid syntax for integer with base %d", base);
+        raise_exc(exc, lex);
+    } else {
+        vstr_t vstr;
+        mp_print_t print;
+        vstr_init_print(&vstr, 50, &print);
+        mp_printf(&print, "invalid syntax for integer with base %d: ", base);
+        mp_str_print_quoted(&print, str_val_start, top - str_val_start, true);
+        mp_obj_t exc = mp_obj_new_exception_arg1(&mp_type_ValueError,
+            mp_obj_new_str_from_vstr(&mp_type_str, &vstr));
+        raise_exc(exc, lex);
     }
 }
 
@@ -160,7 +170,7 @@ typedef enum {
     PARSE_DEC_IN_EXP,
 } parse_dec_in_t;
 
-mp_obj_t mp_parse_num_decimal(const char *str, mp_uint_t len, bool allow_imag, bool force_complex, mp_lexer_t *lex) {
+mp_obj_t mp_parse_num_decimal(const char *str, size_t len, bool allow_imag, bool force_complex, mp_lexer_t *lex) {
 #if MICROPY_PY_BUILTINS_FLOAT
     const char *top = str + len;
     mp_float_t dec_val = 0;
@@ -253,12 +263,7 @@ mp_obj_t mp_parse_num_decimal(const char *str, mp_uint_t len, bool allow_imag, b
         }
 
         // apply the exponent
-        for (; exp_val > 0; exp_val--) {
-            dec_val *= 10;
-        }
-        for (; exp_val < 0; exp_val++) {
-            dec_val *= 0.1;
-        }
+        dec_val *= MICROPY_FLOAT_C_FUN(pow)(10, exp_val);
     }
 
     // negate value if needed
@@ -288,16 +293,16 @@ mp_obj_t mp_parse_num_decimal(const char *str, mp_uint_t len, bool allow_imag, b
         return mp_obj_new_complex(dec_val, 0);
 #else
     if (imag || force_complex) {
-        raise(mp_obj_new_exception_msg(&mp_type_ValueError, "complex values not supported"), lex);
+        raise_exc(mp_obj_new_exception_msg(&mp_type_ValueError, "complex values not supported"), lex);
 #endif
     } else {
         return mp_obj_new_float(dec_val);
     }
 
 value_error:
-    raise(mp_obj_new_exception_msg(&mp_type_ValueError, "invalid syntax for number"), lex);
+    raise_exc(mp_obj_new_exception_msg(&mp_type_ValueError, "invalid syntax for number"), lex);
 
 #else
-    raise(mp_obj_new_exception_msg(&mp_type_ValueError, "decimal numbers not supported"), lex);
+    raise_exc(mp_obj_new_exception_msg(&mp_type_ValueError, "decimal numbers not supported"), lex);
 #endif
 }

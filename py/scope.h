@@ -66,6 +66,7 @@ typedef struct _scope_t {
     uint8_t emit_options; // see compile.h
     uint16_t num_pos_args;
     uint16_t num_kwonly_args;
+    uint16_t num_def_pos_args;
     uint16_t num_locals;
     uint16_t stack_size;     // maximum size of the locals stack
     uint16_t exc_stack_size; // maximum size of the exception stack
@@ -81,6 +82,5 @@ id_info_t *scope_find(scope_t *scope, qstr qstr);
 id_info_t *scope_find_global(scope_t *scope, qstr qstr);
 id_info_t *scope_find_local_in_parent(scope_t *scope, qstr qstr);
 void scope_close_over_in_parents(scope_t *scope, qstr qstr);
-void scope_print_info(scope_t *s);
 
 #endif // __MICROPY_INCLUDED_PY_SCOPE_H__

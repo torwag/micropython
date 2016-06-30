@@ -29,11 +29,14 @@
 #include <ctype.h>
 
 #include "py/mpconfig.h"
-#include MICROPY_HAL_H
+#include "py/mphal.h"
 #include "mptask.h"
 #include "simplelink.h"
 #include "pybwdt.h"
 #include "debug.h"
+#include "antenna.h"
+#include "mperror.h"
+#include "task.h"
 
 /******************************************************************************
  DECLARE PRIVATE CONSTANTS
@@ -47,6 +50,10 @@
  DECLARE PRIVATE DATA
  ******************************************************************************/
 
+// This is the static memory (TCB and stack) for the idle task
+static StaticTask_t xIdleTaskTCB __attribute__ ((section (".rtos_heap")));
+static StackType_t uxIdleTaskStack[configMINIMAL_STACK_SIZE] __attribute__ ((section (".rtos_heap"))) __attribute__((aligned (8)));
+
 /******************************************************************************
  DECLARE PUBLIC DATA
  ******************************************************************************/
@@ -54,37 +61,55 @@
 OsiTaskHandle   mpTaskHandle;
 #endif
 
+// This is the FreeRTOS heap, defined here so we can put it in a special segment
+uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] __attribute__ ((section (".rtos_heap"))) __attribute__((aligned (8)));
+
+// This is the static memory (TCB and stack) for the main MicroPython task
+StaticTask_t mpTaskTCB __attribute__ ((section (".rtos_heap")));
+StackType_t mpTaskStack[MICROPY_TASK_STACK_LEN] __attribute__ ((section (".rtos_heap"))) __attribute__((aligned (8)));
+
 /******************************************************************************
  DEFINE PUBLIC FUNCTIONS
  ******************************************************************************/
 
+__attribute__ ((section (".boot")))
 int main (void) {
 
     // Initialize the clocks and the interrupt system
     HAL_SystemInit();
 
+#if MICROPY_HW_ANTENNA_DIVERSITY
+    // configure the antenna selection pins
+    antenna_init0();
+#endif
+
     // Init the watchdog
     pybwdt_init0();
 
-#ifdef DEBUG
-    ASSERT (OSI_OK == osi_TaskCreate(TASK_Micropython,
-                                     (const signed char *)"MicroPy",
-                                     MICROPY_TASK_STACK_SIZE, NULL, MICROPY_TASK_PRIORITY, &mpTaskHandle));
-#else
-    ASSERT (OSI_OK == osi_TaskCreate(TASK_Micropython,
-                                     (const signed char *)"MicroPy",
-                                     MICROPY_TASK_STACK_SIZE, NULL, MICROPY_TASK_PRIORITY, NULL));
+#ifndef DEBUG
+    OsiTaskHandle mpTaskHandle;
 #endif
+    mpTaskHandle = xTaskCreateStatic(TASK_Micropython, "MicroPy",
+        MICROPY_TASK_STACK_LEN, NULL, MICROPY_TASK_PRIORITY, mpTaskStack, &mpTaskTCB);
+    ASSERT(mpTaskHandle != NULL);
 
     osi_start();
 
     for ( ; ; );
 }
 
-
 void stoupper (char *str) {
     while (str && *str != '\0') {
         *str = (char)toupper((int)(*str));
         str++;
     }
+}
+
+// We need this when configSUPPORT_STATIC_ALLOCATION is enabled
+void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer,
+                                    StackType_t **ppxIdleTaskStackBuffer,
+                                    uint32_t *pulIdleTaskStackSize ) {
+    *ppxIdleTaskTCBBuffer = &xIdleTaskTCB;
+    *ppxIdleTaskStackBuffer = uxIdleTaskStack;
+    *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
 }

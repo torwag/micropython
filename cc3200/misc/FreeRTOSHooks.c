@@ -29,12 +29,11 @@
 #include <string.h>
 
 #include "py/mpconfig.h"
-#include MICROPY_HAL_H
+#include "py/mphal.h"
 #include "py/obj.h"
 #include "inc/hw_memmap.h"
 #include "pybuart.h"
 #include "osi.h"
-#include "pybwdt.h"
 #include "mperror.h"
 
 
@@ -49,9 +48,9 @@
 //*****************************************************************************
 void vApplicationIdleHook (void)
 {
-    // kick the watchdog
-    pybwdt_kick();
-    // gate the processor clock to save power
+    // signal that we are alive and kicking
+    mperror_heartbeat_signal();
+    // gate the processor's clock to save power
     __WFI();
 }
 
@@ -71,10 +70,7 @@ void vApplicationMallocFailedHook (void)
     __asm volatile ("bkpt #0  \n");
 #endif
 
-    for ( ; ; )
-    {
-        __fatal_error("FreeRTOS malloc failed!");
-    }
+    __fatal_error("FreeRTOS malloc failed!");
 }
 
 //*****************************************************************************
@@ -93,10 +89,7 @@ void vApplicationStackOverflowHook (OsiTaskHandle *pxTask, signed char *pcTaskNa
     __asm volatile ("bkpt #0  \n");
 #endif
 
-    for ( ; ; )
-    {
-        __fatal_error("Stack overflow!");
-    }
+    __fatal_error("Stack overflow!");
 }
 
 //*****************************************************************************

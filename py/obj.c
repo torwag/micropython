@@ -33,20 +33,24 @@
 #include "py/obj.h"
 #include "py/objtype.h"
 #include "py/objint.h"
+#include "py/objstr.h"
 #include "py/runtime0.h"
 #include "py/runtime.h"
 #include "py/stackctrl.h"
-#include "py/pfenv.h"
 #include "py/stream.h" // for mp_obj_print
 
 mp_obj_type_t *mp_obj_get_type(mp_const_obj_t o_in) {
     if (MP_OBJ_IS_SMALL_INT(o_in)) {
-        return (mp_obj_t)&mp_type_int;
+        return (mp_obj_type_t*)&mp_type_int;
     } else if (MP_OBJ_IS_QSTR(o_in)) {
-        return (mp_obj_t)&mp_type_str;
+        return (mp_obj_type_t*)&mp_type_str;
+    #if MICROPY_PY_BUILTINS_FLOAT
+    } else if (mp_obj_is_float(o_in)) {
+        return (mp_obj_type_t*)&mp_type_float;
+    #endif
     } else {
-        const mp_obj_base_t *o = o_in;
-        return (mp_obj_t)o->type;
+        const mp_obj_base_t *o = MP_OBJ_TO_PTR(o_in);
+        return (mp_obj_type_t*)o->type;
     }
 }
 
@@ -54,62 +58,57 @@ const char *mp_obj_get_type_str(mp_const_obj_t o_in) {
     return qstr_str(mp_obj_get_type(o_in)->name);
 }
 
-void mp_obj_print_helper(void (*print)(void *env, const char *fmt, ...), void *env, mp_obj_t o_in, mp_print_kind_t kind) {
+void mp_obj_print_helper(const mp_print_t *print, mp_obj_t o_in, mp_print_kind_t kind) {
     // There can be data structures nested too deep, or just recursive
     MP_STACK_CHECK();
 #ifndef NDEBUG
-    if (o_in == NULL) {
-        print(env, "(nil)");
+    if (o_in == MP_OBJ_NULL) {
+        mp_print_str(print, "(nil)");
         return;
     }
 #endif
     mp_obj_type_t *type = mp_obj_get_type(o_in);
     if (type->print != NULL) {
-        type->print(print, env, o_in, kind);
+        type->print((mp_print_t*)print, o_in, kind);
     } else {
-        print(env, "<%s>", qstr_str(type->name));
+        mp_printf(print, "<%q>", type->name);
     }
 }
 
 void mp_obj_print(mp_obj_t o_in, mp_print_kind_t kind) {
 #if MICROPY_PY_IO
-    // defined per port; type of these is irrelevant, just need pointer
-    extern mp_uint_t mp_sys_stdout_obj;
-    pfenv_t pfenv;
-    pfenv.data = &mp_sys_stdout_obj;
-    pfenv.print_strn = (void (*)(void *, const char *, mp_uint_t))mp_stream_write;
-    mp_obj_print_helper((void (*)(void *env, const char *fmt, ...))pfenv_printf, &pfenv, o_in, kind);
+    mp_obj_print_helper(&mp_sys_stdout_print, o_in, kind);
 #else
-    mp_obj_print_helper(printf_wrapper, NULL, o_in, kind);
+    mp_obj_print_helper(&mp_plat_print, o_in, kind);
 #endif
 }
 
 // helper function to print an exception with traceback
-void mp_obj_print_exception(void (*print)(void *env, const char *fmt, ...), void *env, mp_obj_t exc) {
+void mp_obj_print_exception(const mp_print_t *print, mp_obj_t exc) {
     if (mp_obj_is_exception_instance(exc)) {
-        mp_uint_t n, *values;
+        size_t n, *values;
         mp_obj_exception_get_traceback(exc, &n, &values);
         if (n > 0) {
             assert(n % 3 == 0);
-            print(env, "Traceback (most recent call last):\n");
+            mp_print_str(print, "Traceback (most recent call last):\n");
             for (int i = n - 3; i >= 0; i -= 3) {
 #if MICROPY_ENABLE_SOURCE_LINE
-                print(env, "  File \"%s\", line %d", qstr_str(values[i]), (int)values[i + 1]);
+                mp_printf(print, "  File \"%q\", line %d", values[i], (int)values[i + 1]);
 #else
-                print(env, "  File \"%s\"", qstr_str(values[i]));
+                mp_printf(print, "  File \"%q\"", values[i]);
 #endif
                 // the block name can be NULL if it's unknown
                 qstr block = values[i + 2];
                 if (block == MP_QSTR_NULL) {
-                    print(env, "\n");
+                    mp_print_str(print, "\n");
                 } else {
-                    print(env, ", in %s\n", qstr_str(block));
+                    mp_printf(print, ", in %q\n", block);
                 }
             }
         }
     }
-    mp_obj_print_helper(print, env, exc, PRINT_EXC);
-    print(env, "\n");
+    mp_obj_print_helper(print, exc, PRINT_EXC);
+    mp_print_str(print, "\n");
 }
 
 bool mp_obj_is_true(mp_obj_t arg) {
@@ -151,47 +150,6 @@ bool mp_obj_is_callable(mp_obj_t o_in) {
         return call != NULL;
     }
     return mp_obj_instance_is_callable(o_in);
-}
-
-mp_int_t mp_obj_hash(mp_obj_t o_in) {
-    if (o_in == mp_const_false) {
-        return 0; // needs to hash to same as the integer 0, since False==0
-    } else if (o_in == mp_const_true) {
-        return 1; // needs to hash to same as the integer 1, since True==1
-    } else if (MP_OBJ_IS_SMALL_INT(o_in)) {
-        return MP_OBJ_SMALL_INT_VALUE(o_in);
-    } else if (MP_OBJ_IS_TYPE(o_in, &mp_type_int)) {
-        return mp_obj_int_hash(o_in);
-    } else if (MP_OBJ_IS_STR(o_in) || MP_OBJ_IS_TYPE(o_in, &mp_type_bytes)) {
-        return mp_obj_str_get_hash(o_in);
-    } else if (MP_OBJ_IS_TYPE(o_in, &mp_type_NoneType)) {
-        return (mp_int_t)o_in;
-    } else if (MP_OBJ_IS_FUN(o_in)) {
-        return (mp_int_t)o_in;
-    } else if (MP_OBJ_IS_TYPE(o_in, &mp_type_tuple)) {
-        return mp_obj_tuple_hash(o_in);
-    } else if (MP_OBJ_IS_TYPE(o_in, &mp_type_type)) {
-        return (mp_int_t)o_in;
-    } else if (MP_OBJ_IS_OBJ(o_in)) {
-        // if a valid __hash__ method exists, use it
-        mp_obj_t hash_method[2];
-        mp_load_method_maybe(o_in, MP_QSTR___hash__, hash_method);
-        if (hash_method[0] != MP_OBJ_NULL) {
-            mp_obj_t hash_val = mp_call_method_n_kw(0, 0, hash_method);
-            if (MP_OBJ_IS_INT(hash_val)) {
-                return mp_obj_int_get_truncated(hash_val);
-            }
-        }
-    }
-
-    // TODO hash class and instances - in CPython by default user created classes' __hash__ resolves to their id
-
-    if (MICROPY_ERROR_REPORTING == MICROPY_ERROR_REPORTING_TERSE) {
-        nlr_raise(mp_obj_new_exception_msg(&mp_type_TypeError, "unhashable type"));
-    } else {
-        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_TypeError,
-            "unhashable type: '%s'", mp_obj_get_type_str(o_in)));
-    }
 }
 
 // This function implements the '==' operator (and so the inverse of '!=').
@@ -278,6 +236,14 @@ mp_int_t mp_obj_get_int(mp_const_obj_t arg) {
     }
 }
 
+mp_int_t mp_obj_get_int_truncated(mp_const_obj_t arg) {
+    if (MP_OBJ_IS_INT(arg)) {
+        return mp_obj_int_get_truncated(arg);
+    } else {
+        return mp_obj_get_int(arg);
+    }
+}
+
 // returns false if arg is not of integral type
 // returns true and sets *value if it is of integral type
 // can throw OverflowError if arg is of integral type, but doesn't fit in a mp_int_t
@@ -306,7 +272,7 @@ mp_float_t mp_obj_get_float(mp_obj_t arg) {
         return MP_OBJ_SMALL_INT_VALUE(arg);
     } else if (MP_OBJ_IS_TYPE(arg, &mp_type_int)) {
         return mp_obj_int_as_float(arg);
-    } else if (MP_OBJ_IS_TYPE(arg, &mp_type_float)) {
+    } else if (mp_obj_is_float(arg)) {
         return mp_obj_float_get(arg);
     } else {
         if (MICROPY_ERROR_REPORTING == MICROPY_ERROR_REPORTING_TERSE) {
@@ -333,7 +299,7 @@ void mp_obj_get_complex(mp_obj_t arg, mp_float_t *real, mp_float_t *imag) {
     } else if (MP_OBJ_IS_TYPE(arg, &mp_type_int)) {
         *real = mp_obj_int_as_float(arg);
         *imag = 0;
-    } else if (MP_OBJ_IS_TYPE(arg, &mp_type_float)) {
+    } else if (mp_obj_is_float(arg)) {
         *real = mp_obj_float_get(arg);
         *imag = 0;
     } else if (MP_OBJ_IS_TYPE(arg, &mp_type_complex)) {
@@ -351,6 +317,7 @@ void mp_obj_get_complex(mp_obj_t arg, mp_float_t *real, mp_float_t *imag) {
 #endif
 #endif
 
+// note: returned value in *items may point to the interior of a GC block
 void mp_obj_get_array(mp_obj_t o, mp_uint_t *len, mp_obj_t **items) {
     if (MP_OBJ_IS_TYPE(o, &mp_type_tuple)) {
         mp_obj_tuple_get(o, len, items);
@@ -367,6 +334,7 @@ void mp_obj_get_array(mp_obj_t o, mp_uint_t *len, mp_obj_t **items) {
     }
 }
 
+// note: returned value in *items may point to the interior of a GC block
 void mp_obj_get_array_fixed_n(mp_obj_t o, mp_uint_t len, mp_obj_t **items) {
     mp_uint_t seq_len;
     mp_obj_get_array(o, &seq_len, items);
@@ -376,7 +344,7 @@ void mp_obj_get_array_fixed_n(mp_obj_t o, mp_uint_t len, mp_obj_t **items) {
                 "tuple/list has wrong length"));
         } else {
             nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-                "requested length %d but object has length %d", len, seq_len));
+                "requested length %d but object has length %d", (int)len, (int)seq_len));
         }
     }
 }
@@ -392,8 +360,8 @@ mp_uint_t mp_get_index(const mp_obj_type_t *type, mp_uint_t len, mp_obj_t index,
                 "indices must be integers"));
         } else {
             nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_TypeError,
-                "%s indices must be integers, not %s",
-                qstr_str(type->name), mp_obj_get_type_str(index)));
+                "%q indices must be integers, not %s",
+                type->name, mp_obj_get_type_str(index)));
         }
     }
 
@@ -412,7 +380,7 @@ mp_uint_t mp_get_index(const mp_obj_type_t *type, mp_uint_t len, mp_obj_t index,
                 nlr_raise(mp_obj_new_exception_msg(&mp_type_IndexError, "index out of range"));
             } else {
                 nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_IndexError,
-                    "%s index out of range", qstr_str(type->name)));
+                    "%q index out of range", type->name));
             }
         }
     }
@@ -461,7 +429,8 @@ mp_obj_t mp_obj_len_maybe(mp_obj_t o_in) {
         MP_OBJ_IS_STR(o_in) ||
 #endif
         MP_OBJ_IS_TYPE(o_in, &mp_type_bytes)) {
-        return MP_OBJ_NEW_SMALL_INT(mp_obj_str_get_len(o_in));
+        GET_STR_LEN(o_in, l);
+        return MP_OBJ_NEW_SMALL_INT(l);
     } else {
         mp_obj_type_t *type = mp_obj_get_type(o_in);
         if (type->unary_op != NULL) {
@@ -530,5 +499,12 @@ bool mp_get_buffer(mp_obj_t obj, mp_buffer_info_t *bufinfo, mp_uint_t flags) {
 void mp_get_buffer_raise(mp_obj_t obj, mp_buffer_info_t *bufinfo, mp_uint_t flags) {
     if (!mp_get_buffer(obj, bufinfo, flags)) {
         nlr_raise(mp_obj_new_exception_msg(&mp_type_TypeError, "object with buffer protocol required"));
+    }
+}
+
+mp_obj_t mp_generic_unary_op(mp_uint_t op, mp_obj_t o_in) {
+    switch (op) {
+        case MP_UNARY_OP_HASH: return MP_OBJ_NEW_SMALL_INT((mp_uint_t)o_in);
+        default: return MP_OBJ_NULL; // op not supported
     }
 }

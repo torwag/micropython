@@ -25,8 +25,6 @@
  */
 
 #include <stdio.h>
-#include <unistd.h>
-#include <string.h>
 
 #include "py/nlr.h"
 #include "py/objlist.h"
@@ -37,8 +35,9 @@
 
 STATIC mp_obj_t mod_ujson_dumps(mp_obj_t obj) {
     vstr_t vstr;
-    vstr_init(&vstr, 8);
-    mp_obj_print_helper((void (*)(void *env, const char *fmt, ...))vstr_printf, &vstr, obj, PRINT_JSON);
+    mp_print_t print;
+    vstr_init_print(&vstr, 8, &print);
+    mp_obj_print_helper(&print, obj, PRINT_JSON);
     return mp_obj_new_str_from_vstr(&mp_type_str, &vstr);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_ujson_dumps_obj, mod_ujson_dumps);
@@ -223,7 +222,7 @@ STATIC mp_obj_t mod_ujson_loads(mp_obj_t obj) {
                     mp_obj_list_init(&stack, 1);
                     stack.items[0] = stack_top;
                 } else {
-                    mp_obj_list_append(&stack, stack_top);
+                    mp_obj_list_append(MP_OBJ_FROM_PTR(&stack), stack_top);
                 }
                 stack_top = next;
                 stack_top_type = mp_obj_get_type(stack_top);
@@ -251,10 +250,10 @@ STATIC mp_obj_t mod_ujson_loads(mp_obj_t obj) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_ujson_loads_obj, mod_ujson_loads);
 
-STATIC const mp_map_elem_t mp_module_ujson_globals_table[] = {
-    { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_ujson) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_dumps), (mp_obj_t)&mod_ujson_dumps_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_loads), (mp_obj_t)&mod_ujson_loads_obj },
+STATIC const mp_rom_map_elem_t mp_module_ujson_globals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_ujson) },
+    { MP_ROM_QSTR(MP_QSTR_dumps), MP_ROM_PTR(&mod_ujson_dumps_obj) },
+    { MP_ROM_QSTR(MP_QSTR_loads), MP_ROM_PTR(&mod_ujson_loads_obj) },
 };
 
 STATIC MP_DEFINE_CONST_DICT(mp_module_ujson_globals, mp_module_ujson_globals_table);

@@ -27,16 +27,17 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <errno.h>
 
 #include "py/nlr.h"
 #include "py/objlist.h"
 #include "py/runtime.h"
+#include "py/mperrno.h"
+#include "py/mphal.h"
+#include "netutils.h"
 #include "modnetwork.h"
 #include "pin.h"
 #include "genhdr/pins.h"
 #include "spi.h"
-#include MICROPY_HAL_H
 
 #include "ethernet/wizchip_conf.h"
 #include "ethernet/socket.h"
@@ -92,20 +93,20 @@ STATIC int wiznet5k_gethostbyname(mp_obj_t nic, const char *name, mp_uint_t len,
         return 0;
     } else {
         // failure
-        return ENOENT;
+        return MP_ENOENT;
     }
 }
 
 STATIC int wiznet5k_socket_socket(mod_network_socket_obj_t *socket, int *_errno) {
     if (socket->u_param.domain != MOD_NETWORK_AF_INET) {
-        *_errno = EAFNOSUPPORT;
+        *_errno = MP_EAFNOSUPPORT;
         return -1;
     }
 
     switch (socket->u_param.type) {
         case MOD_NETWORK_SOCK_STREAM: socket->u_param.type = Sn_MR_TCP; break;
         case MOD_NETWORK_SOCK_DGRAM: socket->u_param.type = Sn_MR_UDP; break;
-        default: *_errno = EINVAL; return -1;
+        default: *_errno = MP_EINVAL; return -1;
     }
 
     if (socket->u_param.fileno == -1) {
@@ -119,7 +120,7 @@ STATIC int wiznet5k_socket_socket(mod_network_socket_obj_t *socket, int *_errno)
         }
         if (socket->u_param.fileno == -1) {
             // too many open sockets
-            *_errno = EMFILE;
+            *_errno = MP_EMFILE;
             return -1;
         }
     }
@@ -198,7 +199,7 @@ STATIC int wiznet5k_socket_accept(mod_network_socket_obj_t *socket, mod_network_
         }
         if (sr == SOCK_CLOSED || sr == SOCK_CLOSE_WAIT) {
             wiznet5k_socket_close(socket);
-            *_errno = ENOTCONN; // ??
+            *_errno = MP_ENOTCONN; // ??
             return -1;
         }
         HAL_Delay(1);
@@ -276,13 +277,13 @@ STATIC mp_uint_t wiznet5k_socket_recvfrom(mod_network_socket_obj_t *socket, byte
 
 STATIC int wiznet5k_socket_setsockopt(mod_network_socket_obj_t *socket, mp_uint_t level, mp_uint_t opt, const void *optval, mp_uint_t optlen, int *_errno) {
     // TODO
-    *_errno = EINVAL;
+    *_errno = MP_EINVAL;
     return -1;
 }
 
 STATIC int wiznet5k_socket_settimeout(mod_network_socket_obj_t *socket, mp_uint_t timeout_ms, int *_errno) {
     // TODO
-    *_errno = EINVAL;
+    *_errno = MP_EINVAL;
     return -1;
 
     /*
@@ -296,7 +297,7 @@ STATIC int wiznet5k_socket_settimeout(mod_network_socket_obj_t *socket, mp_uint_
 
 STATIC int wiznet5k_socket_ioctl(mod_network_socket_obj_t *socket, mp_uint_t request, mp_uint_t arg, int *_errno) {
     // TODO
-    *_errno = EINVAL;
+    *_errno = MP_EINVAL;
     return -1;
 }
 
@@ -317,7 +318,7 @@ STATIC mp_obj_t wiznet5k_socket_disconnect(mp_obj_t self_in) {
 
 /// \classmethod \constructor(spi, pin_cs, pin_rst)
 /// Create and return a WIZNET5K object.
-STATIC mp_obj_t wiznet5k_make_new(mp_obj_t type_in, mp_uint_t n_args, mp_uint_t n_kw, const mp_obj_t *args) {
+STATIC mp_obj_t wiznet5k_make_new(const mp_obj_type_t *type, mp_uint_t n_args, mp_uint_t n_kw, const mp_obj_t *args) {
     // check arguments
     mp_arg_check_num(n_args, n_kw, 3, 3, false);
 
@@ -422,20 +423,20 @@ STATIC mp_obj_t wiznet5k_ifconfig(mp_uint_t n_args, const mp_obj_t *args) {
     if (n_args == 1) {
         // get
         mp_obj_t tuple[4] = {
-            mod_network_format_ipv4_addr(netinfo.ip),
-            mod_network_format_ipv4_addr(netinfo.sn),
-            mod_network_format_ipv4_addr(netinfo.gw),
-            mod_network_format_ipv4_addr(netinfo.dns),
+            netutils_format_ipv4_addr(netinfo.ip, NETUTILS_BIG),
+            netutils_format_ipv4_addr(netinfo.sn, NETUTILS_BIG),
+            netutils_format_ipv4_addr(netinfo.gw, NETUTILS_BIG),
+            netutils_format_ipv4_addr(netinfo.dns, NETUTILS_BIG),
         };
         return mp_obj_new_tuple(4, tuple);
     } else {
         // set
         mp_obj_t *items;
         mp_obj_get_array_fixed_n(args[1], 4, &items);
-        mod_network_parse_ipv4_addr(items[0], netinfo.ip);
-        mod_network_parse_ipv4_addr(items[1], netinfo.sn);
-        mod_network_parse_ipv4_addr(items[2], netinfo.gw);
-        mod_network_parse_ipv4_addr(items[3], netinfo.dns);
+        netutils_parse_ipv4_addr(items[0], netinfo.ip, NETUTILS_BIG);
+        netutils_parse_ipv4_addr(items[1], netinfo.sn, NETUTILS_BIG);
+        netutils_parse_ipv4_addr(items[2], netinfo.gw, NETUTILS_BIG);
+        netutils_parse_ipv4_addr(items[3], netinfo.dns, NETUTILS_BIG);
         ctlnetwork(CN_SET_NETINFO, &netinfo);
         return mp_const_none;
     }

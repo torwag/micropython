@@ -53,19 +53,23 @@ extern uint32_t _edata;
 extern uint32_t _bss;
 extern uint32_t _ebss;
 extern uint32_t _estack;
-extern uint32_t __init_data;
 
 //*****************************************************************************
 //
 // Forward declaration of the default fault handlers.
 //
 //*****************************************************************************
+#ifndef BOOTLOADER
+__attribute__ ((section (".boot")))
+#endif
 void ResetISR(void);
+#ifdef DEBUG
 static void NmiSR(void) __attribute__( ( naked ) );
 static void FaultISR( void ) __attribute__( ( naked ) );
-static void IntDefaultHandler(void) __attribute__( ( naked ) );
+void HardFault_HandlerC(uint32_t *pulFaultStackAddress);
 static void BusFaultHandler(void) __attribute__( ( naked ) );
-void HardFault_HandlerC(unsigned long *hardfault_args);
+#endif
+static void IntDefaultHandler(void) __attribute__( ( naked ) );
 
 //*****************************************************************************
 //
@@ -96,10 +100,19 @@ void (* const g_pfnVectors[256])(void) =
 {
     (void (*)(void))((uint32_t)&_estack),   // The initial stack pointer
     ResetISR,                               // The reset handler
+#ifdef DEBUG
     NmiSR,                                  // The NMI handler
     FaultISR,                               // The hard fault handler
+#else
+    IntDefaultHandler,                      // The NMI handler
+    IntDefaultHandler,                      // The hard fault handler
+#endif
     IntDefaultHandler,                      // The MPU fault handler
+#ifdef DEBUG
     BusFaultHandler,                        // The bus fault handler
+#else
+    IntDefaultHandler,                      // The bus fault handler
+#endif
     IntDefaultHandler,                      // The usage fault handler
     0,                                      // Reserved
     0,                                      // Reserved
@@ -201,45 +214,38 @@ void (* const g_pfnVectors[256])(void) =
 void ResetISR(void)
 {
 #if defined(DEBUG) && !defined(BOOTLOADER)
-    //
-    // Fill the main stack with a known value so that
-    // we can measure the main stack high water mark
-    //
-    __asm volatile
-    (
-            "ldr     r0, =_stack        \n"
-            "ldr     r1, =_estack       \n"
-            "mov     r2, #0x55555555    \n"
-    ".thumb_func                        \n"
-    "fill_loop:                         \n"
-            "cmp     r0, r1             \n"
-            "it      lt                 \n"
-            "strlt   r2, [r0], #4       \n"
-            "blt     fill_loop          \n"
-    );
+    {
+        //
+        // Fill the main stack with a known value so that
+        // we can measure the main stack high water mark
+        //
+        __asm volatile
+        (
+                "ldr     r0, =_stack        \n"
+                "ldr     r1, =_estack       \n"
+                "mov     r2, #0x55555555    \n"
+        ".thumb_func                        \n"
+        "fill_loop:                         \n"
+                "cmp     r0, r1             \n"
+                "it      lt                 \n"
+                "strlt   r2, [r0], #4       \n"
+                "blt     fill_loop          \n"
+        );
+    }
 #endif
 
-    // Get the initial stack pointer location from the vector table
-    // and write this value to the msp register
-    __asm volatile
-    (
-            "ldr r0, =_text             \n"
-            "ldr r0, [r0]               \n"
-            "msr msp, r0                \n"
-    );
+    {
+        // Get the initial stack pointer location from the vector table
+        // and write this value to the msp register
+        __asm volatile
+        (
+                "ldr r0, =_text             \n"
+                "ldr r0, [r0]               \n"
+                "msr msp, r0                \n"
+        );
+    }
 
     {
-        uint32_t *pui32Src, *pui32Dest;
-
-        //
-        // Copy the data segment initializers
-        //
-        pui32Src = &__init_data;
-        for(pui32Dest = &_data; pui32Dest < &_edata; )
-        {
-            *pui32Dest++ = *pui32Src++;
-        }
-
         //
         // Zero fill the bss segment.
         //
@@ -257,12 +263,15 @@ void ResetISR(void)
         );
     }
 
-    //
-    // Call the application's entry point.
-    //
-    main();
+    {
+        //
+        // Call the application's entry point.
+        //
+        main();
+    }
 }
 
+#ifdef DEBUG
 //*****************************************************************************
 //
 // This is the code that gets called when the processor receives a NMI.  This
@@ -273,10 +282,8 @@ void ResetISR(void)
 
 static void NmiSR(void)
 {
-#ifdef DEBUG
     // Break into the debugger
     __asm volatile ("bkpt #0  \n");
-#endif
 
     //
     // Enter an infinite loop.
@@ -316,55 +323,9 @@ static void FaultISR(void)
         ) ;
 }
 
-//*****************************************************************************
-//
-// This is the code that gets called when the processor receives an unexpected
-// interrupt.  This simply enters an infinite loop, preserving the system state
-// for examination by a debugger.
-//
-//*****************************************************************************
-
-static void BusFaultHandler(void)
-{
-#ifdef DEBUG
-    // Break into the debugger
-    __asm volatile ("bkpt #0  \n");
-#endif
-
-    //
-    // Enter an infinite loop.
-    //
-    for ( ; ; )
-    {
-    }
-}
-
-//*****************************************************************************
-//
-// This is the code that gets called when the processor receives an unexpected
-// interrupt.  This simply enters an infinite loop, preserving the system state
-// for examination by a debugger.
-//
-//*****************************************************************************
-static void IntDefaultHandler(void)
-{
-#ifdef DEBUG
-    // Break into the debugger
-    __asm volatile ("bkpt #0  \n");
-#endif
-
-    //
-    // Enter an infinite loop.
-    //
-    for ( ; ; )
-    {
-    }
-}
-
-
 //***********************************************************************************
 // HardFaultHandler_C:
-// This is called from the HardFault_HandlerAsm with a pointer the Fault stack
+// This is called from the FaultISR with a pointer the Fault stack
 // as the parameter. We can then read the values from the stack and place them
 // into local variables for ease of reading.
 // We then read the various Fault Status and Address Registers to help decode
@@ -403,16 +364,58 @@ void HardFault_HandlerC(uint32_t *pulFaultStackAddress)
     // Bus Fault Address Register
     _BFAR = (*((volatile uint32_t *)(0xE000ED38)));
 
-#ifdef DEBUG
     // Break into the debugger
     __asm volatile ("bkpt #0  \n");
-#endif
 
     for ( ; ; )
     {
         // Keep the compiler happy
         (void)r0, (void)r1, (void)r2, (void)r3, (void)r12, (void)lr, (void)pc, (void)psr;
         (void)_CFSR, (void)_HFSR, (void)_BFAR;
+    }
+}
+
+//*****************************************************************************
+//
+// This is the code that gets called when the processor receives an unexpected
+// interrupt.  This simply enters an infinite loop, preserving the system state
+// for examination by a debugger.
+//
+//*****************************************************************************
+
+static void BusFaultHandler(void)
+{
+    // Break into the debugger
+    __asm volatile ("bkpt #0  \n");
+
+    //
+    // Enter an infinite loop.
+    //
+    for ( ; ; )
+    {
+    }
+}
+#endif
+
+//*****************************************************************************
+//
+// This is the code that gets called when the processor receives an unexpected
+// interrupt.  This simply enters an infinite loop, preserving the system state
+// for examination by a debugger.
+//
+//*****************************************************************************
+static void IntDefaultHandler(void)
+{
+#ifdef DEBUG
+    // Break into the debugger
+    __asm volatile ("bkpt #0  \n");
+#endif
+
+    //
+    // Enter an infinite loop.
+    //
+    for ( ; ; )
+    {
     }
 }
 

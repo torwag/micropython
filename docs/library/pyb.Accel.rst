@@ -1,3 +1,5 @@
+.. currentmodule:: pyb
+
 class Accel -- accelerometer control
 ====================================
 
@@ -17,35 +19,30 @@ Constructors
 
    Create and return an accelerometer object.
    
-   Note: if you read accelerometer values immediately after creating this object
-   you will get 0.  It takes around 20ms for the first sample to be ready, so,
-   unless you have some other code between creating this object and reading its
-   values, you should put a ``pyb.delay(20)`` after creating it.  For example::
-   
-       accel = pyb.Accel()
-       pyb.delay(20)
-       print(accel.x())
-
-
 Methods
 -------
 
-.. method:: accel.filtered_xyz()
+.. method:: Accel.filtered_xyz()
 
    Get a 3-tuple of filtered x, y and z values.
 
-.. method:: accel.tilt()
+   Implementation note: this method is currently implemented as taking the
+   sum of 4 samples, sampled from the 3 previous calls to this function along
+   with the sample from the current call.  Returned values are therefore 4
+   times the size of what they would be from the raw x(), y() and z() calls.
+
+.. method:: Accel.tilt()
 
    Get the tilt register.
 
-.. method:: accel.x()
+.. method:: Accel.x()
 
    Get the x-axis value.
 
-.. method:: accel.y()
+.. method:: Accel.y()
 
    Get the y-axis value.
 
-.. method:: accel.z()
+.. method:: Accel.z()
 
    Get the z-axis value.

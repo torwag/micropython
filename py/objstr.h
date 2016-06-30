@@ -36,34 +36,42 @@ typedef struct _mp_obj_str_t {
     const byte *data;
 } mp_obj_str_t;
 
-#define MP_DEFINE_STR_OBJ(obj_name, str) mp_obj_str_t obj_name = {{&mp_type_str}, 0, sizeof(str) - 1, (const byte*)str};
+#define MP_DEFINE_STR_OBJ(obj_name, str) mp_obj_str_t obj_name = {{&mp_type_str}, 0, sizeof(str) - 1, (const byte*)str}
 
 // use this macro to extract the string hash
 #define GET_STR_HASH(str_obj_in, str_hash) \
     mp_uint_t str_hash; if (MP_OBJ_IS_QSTR(str_obj_in)) \
-    { str_hash = qstr_hash(MP_OBJ_QSTR_VALUE(str_obj_in)); } else { str_hash = ((mp_obj_str_t*)str_obj_in)->hash; }
+    { str_hash = qstr_hash(MP_OBJ_QSTR_VALUE(str_obj_in)); } else { str_hash = ((mp_obj_str_t*)MP_OBJ_TO_PTR(str_obj_in))->hash; }
 
 // use this macro to extract the string length
 #define GET_STR_LEN(str_obj_in, str_len) \
-    mp_uint_t str_len; if (MP_OBJ_IS_QSTR(str_obj_in)) \
-    { str_len = qstr_len(MP_OBJ_QSTR_VALUE(str_obj_in)); } else { str_len = ((mp_obj_str_t*)str_obj_in)->len; }
+    size_t str_len; if (MP_OBJ_IS_QSTR(str_obj_in)) \
+    { str_len = qstr_len(MP_OBJ_QSTR_VALUE(str_obj_in)); } else { str_len = ((mp_obj_str_t*)MP_OBJ_TO_PTR(str_obj_in))->len; }
 
 // use this macro to extract the string data and length
+#if MICROPY_OBJ_REPR == MICROPY_OBJ_REPR_C
+const byte *mp_obj_str_get_data_no_check(mp_obj_t self_in, size_t *len);
 #define GET_STR_DATA_LEN(str_obj_in, str_data, str_len) \
-    const byte *str_data; mp_uint_t str_len; if (MP_OBJ_IS_QSTR(str_obj_in)) \
+    size_t str_len; const byte *str_data = mp_obj_str_get_data_no_check(str_obj_in, &str_len);
+#else
+#define GET_STR_DATA_LEN(str_obj_in, str_data, str_len) \
+    const byte *str_data; size_t str_len; if (MP_OBJ_IS_QSTR(str_obj_in)) \
     { str_data = qstr_data(MP_OBJ_QSTR_VALUE(str_obj_in), &str_len); } \
-    else { str_len = ((mp_obj_str_t*)str_obj_in)->len; str_data = ((mp_obj_str_t*)str_obj_in)->data; }
+    else { str_len = ((mp_obj_str_t*)MP_OBJ_TO_PTR(str_obj_in))->len; str_data = ((mp_obj_str_t*)MP_OBJ_TO_PTR(str_obj_in))->data; }
+#endif
 
-mp_obj_t mp_obj_str_make_new(mp_obj_t type_in, mp_uint_t n_args, mp_uint_t n_kw, const mp_obj_t *args);
-void mp_str_print_json(void (*print)(void *env, const char *fmt, ...), void *env, const byte *str_data, mp_uint_t str_len);
-mp_obj_t mp_obj_str_format(mp_uint_t n_args, const mp_obj_t *args, mp_map_t *kwargs);
-mp_obj_t mp_obj_new_str_of_type(const mp_obj_type_t *type, const byte* data, mp_uint_t len);
+mp_obj_t mp_obj_str_make_new(const mp_obj_type_t *type_in, size_t n_args, size_t n_kw, const mp_obj_t *args);
+void mp_str_print_json(const mp_print_t *print, const byte *str_data, size_t str_len);
+mp_obj_t mp_obj_str_format(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs);
+mp_obj_t mp_obj_str_split(size_t n_args, const mp_obj_t *args);
+mp_obj_t mp_obj_new_str_of_type(const mp_obj_type_t *type, const byte* data, size_t len);
 
 mp_obj_t mp_obj_str_binary_op(mp_uint_t op, mp_obj_t lhs_in, mp_obj_t rhs_in);
 mp_int_t mp_obj_str_get_buffer(mp_obj_t self_in, mp_buffer_info_t *bufinfo, mp_uint_t flags);
 
-const byte *str_index_to_ptr(const mp_obj_type_t *type, const byte *self_data, mp_uint_t self_len,
+const byte *str_index_to_ptr(const mp_obj_type_t *type, const byte *self_data, size_t self_len,
                              mp_obj_t index, bool is_slice);
+const byte *find_subbytes(const byte *haystack, mp_uint_t hlen, const byte *needle, mp_uint_t nlen, mp_int_t direction);
 
 MP_DECLARE_CONST_FUN_OBJ(str_encode_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_find_obj);
@@ -72,6 +80,7 @@ MP_DECLARE_CONST_FUN_OBJ(str_index_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_rindex_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_join_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_split_obj);
+MP_DECLARE_CONST_FUN_OBJ(str_splitlines_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_rsplit_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_startswith_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_endswith_obj);
@@ -83,6 +92,7 @@ MP_DECLARE_CONST_FUN_OBJ(str_replace_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_count_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_partition_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_rpartition_obj);
+MP_DECLARE_CONST_FUN_OBJ(str_center_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_lower_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_upper_obj);
 MP_DECLARE_CONST_FUN_OBJ(str_isspace_obj);

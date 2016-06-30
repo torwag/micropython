@@ -32,9 +32,7 @@
 #define MP_BC_LOAD_CONST_FALSE   (0x10)
 #define MP_BC_LOAD_CONST_NONE    (0x11)
 #define MP_BC_LOAD_CONST_TRUE    (0x12)
-#define MP_BC_LOAD_CONST_ELLIPSIS    (0x13)
 #define MP_BC_LOAD_CONST_SMALL_INT   (0x14) // signed var-int
-#define MP_BC_LOAD_CONST_BYTES   (0x15) // qstr
 #define MP_BC_LOAD_CONST_STRING  (0x16) // qstr
 #define MP_BC_LOAD_CONST_OBJ     (0x17) // ptr
 #define MP_BC_LOAD_NULL          (0x18)
@@ -82,8 +80,6 @@
 #define MP_BC_POP_EXCEPT         (0x45)
 #define MP_BC_UNWIND_JUMP        (0x46) // rel byte code offset, 16-bit signed, in excess; then a byte
 
-#define MP_BC_NOT                (0x47)
-
 #define MP_BC_BUILD_TUPLE        (0x50) // uint
 #define MP_BC_BUILD_LIST         (0x51) // uint
 #define MP_BC_LIST_APPEND        (0x52) // uint
@@ -117,7 +113,7 @@
 #define MP_BC_LOAD_CONST_SMALL_INT_MULTI (0x70) // + N(64)
 #define MP_BC_LOAD_FAST_MULTI            (0xb0) // + N(16)
 #define MP_BC_STORE_FAST_MULTI           (0xc0) // + N(16)
-#define MP_BC_UNARY_OP_MULTI             (0xd0) // + op(5)
-#define MP_BC_BINARY_OP_MULTI            (0xd5) // + op(35)
+#define MP_BC_UNARY_OP_MULTI             (0xd0) // + op(7)
+#define MP_BC_BINARY_OP_MULTI            (0xd7) // + op(36)
 
 #endif // __MICROPY_INCLUDED_PY_BC0_H__

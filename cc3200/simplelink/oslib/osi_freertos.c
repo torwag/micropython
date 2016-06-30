@@ -44,9 +44,7 @@
 #include "task.h"
 #include "semphr.h"
 #include "portmacro.h"
-#include <osi.h>
-
-#include "rom.h"
+#include "osi.h"
 #include "rom_map.h"
 #include "inc/hw_types.h"
 #include "interrupt.h"
@@ -62,6 +60,10 @@ TaskHandle_t xSimpleLinkSpawnTaskHndl = NULL;
 // Queue size 
 #define slQUEUE_SIZE				( 3 )
 #define SL_SPAWN_MAX_WAIT_MS        ( 200 )
+
+// This is the static memory (TCB and stack) for the SL spawn task
+static StaticTask_t spawnTaskTCB __attribute__ ((section (".rtos_heap")));
+static portSTACK_TYPE spawnTaskStack[896 / sizeof(portSTACK_TYPE)] __attribute__ ((section (".rtos_heap"))) __attribute__((aligned (8)));
 
 /*!
 	\brief 	This function registers an interrupt in NVIC table
@@ -449,13 +451,25 @@ void vSimpleLinkSpawnTask(void *pvParameters)
 	\note
 	\warning
 */
+__attribute__ ((section (".boot")))
 OsiReturnVal_e VStartSimpleLinkSpawnTask(unsigned portBASE_TYPE uxPriority)
 {
     xSimpleLinkSpawnQueue = xQueueCreate( slQUEUE_SIZE, sizeof( tSimpleLinkSpawnMsg ) );
     ASSERT (xSimpleLinkSpawnQueue != NULL);
 
+    /*
+    // This is the original code to create a task dynamically
     ASSERT (pdPASS == xTaskCreate( vSimpleLinkSpawnTask, ( portCHAR * ) "SLSPAWN",\
-    					           768 / sizeof(portSTACK_TYPE), NULL, uxPriority, &xSimpleLinkSpawnTaskHndl ));
+                                   896 / sizeof(portSTACK_TYPE), NULL, uxPriority, &xSimpleLinkSpawnTaskHndl ));
+    */
+
+    // This code creates the task using static memory for the TCB and stack
+    xSimpleLinkSpawnTaskHndl = xTaskCreateStatic(
+        vSimpleLinkSpawnTask, ( portCHAR * ) "SLSPAWN",
+        896 / sizeof(portSTACK_TYPE), NULL, uxPriority,
+        spawnTaskStack, &spawnTaskTCB);
+
+    ASSERT(xSimpleLinkSpawnTaskHndl != NULL);
 
     return OSI_OK;
 }
@@ -666,6 +680,7 @@ void osi_ExitCritical(void)
 	\note
 	\warning
 */
+__attribute__ ((section (".boot")))
 void osi_start()
 {
     vTaskStartScheduler();
@@ -690,11 +705,9 @@ void osi_Sleep(unsigned int MilliSecs)
 	\note
 	\warning
 */
-unsigned long osi_TaskDisable(void)
+void osi_TaskDisable(void)
 {
    vTaskSuspendAll();
-
-   return OSI_OK;
 }
 
 
@@ -705,7 +718,7 @@ unsigned long osi_TaskDisable(void)
 	\note
 	\warning
 */
-void osi_TaskEnable(unsigned long key)
+void osi_TaskEnable(void)
 {
    xTaskResumeAll();
 }

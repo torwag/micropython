@@ -53,28 +53,74 @@
 const mp_obj_int_t mp_maxsize_obj = {{&mp_type_int}, MP_SSIZE_MAX};
 #endif
 
-mp_int_t mp_obj_int_hash(mp_obj_t self_in) {
-    if (MP_OBJ_IS_SMALL_INT(self_in)) {
-        return MP_OBJ_SMALL_INT_VALUE(self_in);
-    }
+void mp_obj_int_to_bytes_impl(mp_obj_t self_in, bool big_endian, mp_uint_t len, byte *buf) {
+    assert(MP_OBJ_IS_TYPE(self_in, &mp_type_int));
     mp_obj_int_t *self = self_in;
-    // truncate value to fit in mp_int_t, which gives the same hash as
-    // small int if the value fits without truncation
-    return self->val;
+    long long val = self->val;
+    if (big_endian) {
+        byte *b = buf + len;
+        while (b > buf) {
+            *--b = val;
+            val >>= 8;
+        }
+    } else {
+        for (; len > 0; --len) {
+            *buf++ = val;
+            val >>= 8;
+        }
+    }
 }
 
-bool mp_obj_int_is_positive(mp_obj_t self_in) {
+int mp_obj_int_sign(mp_obj_t self_in) {
+    mp_longint_impl_t val;
     if (MP_OBJ_IS_SMALL_INT(self_in)) {
-        return MP_OBJ_SMALL_INT_VALUE(self_in) >= 0;
+        val = MP_OBJ_SMALL_INT_VALUE(self_in);
+    } else {
+        mp_obj_int_t *self = self_in;
+        val = self->val;
     }
-    mp_obj_int_t *self = self_in;
-    return self->val >= 0;
+    if (val < 0) {
+        return -1;
+    } else if (val > 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+// This must handle int and bool types, and must raise a
+// TypeError if the argument is not integral
+mp_obj_t mp_obj_int_abs(mp_obj_t self_in) {
+    if (MP_OBJ_IS_TYPE(self_in, &mp_type_int)) {
+        mp_obj_int_t *self = self_in;
+        self = mp_obj_new_int_from_ll(self->val);
+        if (self->val < 0) {
+            // TODO could overflow long long
+            self->val = -self->val;
+        }
+        return self;
+    } else {
+        mp_int_t val = mp_obj_get_int(self_in);
+        if (val == MP_SMALL_INT_MIN) {
+            return mp_obj_new_int_from_ll(-val);
+        } else {
+            if (val < 0) {
+                val = -val;
+            }
+            return MP_OBJ_NEW_SMALL_INT(val);
+        }
+    }
 }
 
 mp_obj_t mp_obj_int_unary_op(mp_uint_t op, mp_obj_t o_in) {
     mp_obj_int_t *o = o_in;
     switch (op) {
-        case MP_UNARY_OP_BOOL: return MP_BOOL(o->val != 0);
+        case MP_UNARY_OP_BOOL: return mp_obj_new_bool(o->val != 0);
+
+        // truncate value to fit in mp_int_t, which gives the same hash as
+        // small int if the value fits without truncation
+        case MP_UNARY_OP_HASH: return MP_OBJ_NEW_SMALL_INT((mp_int_t)o->val);
+
         case MP_UNARY_OP_POSITIVE: return o_in;
         case MP_UNARY_OP_NEGATIVE: return mp_obj_new_int_from_ll(-o->val);
         case MP_UNARY_OP_INVERT: return mp_obj_new_int_from_ll(~o->val);
@@ -137,16 +183,32 @@ mp_obj_t mp_obj_int_binary_op(mp_uint_t op, mp_obj_t lhs_in, mp_obj_t rhs_in) {
         case MP_BINARY_OP_INPLACE_RSHIFT:
             return mp_obj_new_int_from_ll(lhs_val >> (int)rhs_val);
 
+        case MP_BINARY_OP_POWER:
+        case MP_BINARY_OP_INPLACE_POWER: {
+            long long ans = 1;
+            while (rhs_val > 0) {
+                if (rhs_val & 1) {
+                    ans *= lhs_val;
+                }
+                if (rhs_val == 1) {
+                    break;
+                }
+                rhs_val /= 2;
+                lhs_val *= lhs_val;
+            }
+            return mp_obj_new_int_from_ll(ans);
+        }
+
         case MP_BINARY_OP_LESS:
-            return MP_BOOL(lhs_val < rhs_val);
+            return mp_obj_new_bool(lhs_val < rhs_val);
         case MP_BINARY_OP_MORE:
-            return MP_BOOL(lhs_val > rhs_val);
+            return mp_obj_new_bool(lhs_val > rhs_val);
         case MP_BINARY_OP_LESS_EQUAL:
-            return MP_BOOL(lhs_val <= rhs_val);
+            return mp_obj_new_bool(lhs_val <= rhs_val);
         case MP_BINARY_OP_MORE_EQUAL:
-            return MP_BOOL(lhs_val >= rhs_val);
+            return mp_obj_new_bool(lhs_val >= rhs_val);
         case MP_BINARY_OP_EQUAL:
-            return MP_BOOL(lhs_val == rhs_val);
+            return mp_obj_new_bool(lhs_val == rhs_val);
 
         default:
             return MP_OBJ_NULL; // op not supported
@@ -161,9 +223,9 @@ mp_obj_t mp_obj_new_int(mp_int_t value) {
 }
 
 mp_obj_t mp_obj_new_int_from_uint(mp_uint_t value) {
-    // SMALL_INT accepts only signed numbers, of one bit less size
-    // than word size, which totals 2 bits less for unsigned numbers.
-    if ((value & (WORD_MSBIT_HIGH | (WORD_MSBIT_HIGH >> 1))) == 0) {
+    // SMALL_INT accepts only signed numbers, so make sure the input
+    // value fits completely in the small-int positive range.
+    if ((value & ~MP_SMALL_INT_POSITIVE_MASK) == 0) {
         return MP_OBJ_NEW_SMALL_INT(value);
     }
     return mp_obj_new_int_from_ll(value);
@@ -178,7 +240,9 @@ mp_obj_t mp_obj_new_int_from_ll(long long val) {
 
 mp_obj_t mp_obj_new_int_from_ull(unsigned long long val) {
     // TODO raise an exception if the unsigned long long won't fit
-    assert(val >> (sizeof(unsigned long long) * 8 - 1) == 0);
+    if (val >> (sizeof(unsigned long long) * 8 - 1) != 0) {
+        nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_OverflowError, "ulonglong too large"));
+    }
     mp_obj_int_t *o = m_new_obj(mp_obj_int_t);
     o->base.type = &mp_type_int;
     o->val = val;

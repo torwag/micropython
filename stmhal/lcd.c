@@ -26,7 +26,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <stm32f4xx_hal.h>
+#include STM32_HAL_H
 
 #include "py/nlr.h"
 #include "py/runtime.h"
@@ -192,7 +192,7 @@ STATIC void lcd_write_strn(pyb_lcd_obj_t *lcd, const char *str, unsigned int len
 ///
 /// Construct an LCD object in the given skin position.  `skin_position` can be 'X' or 'Y', and
 /// should match the position where the LCD pyskin is plugged in.
-STATIC mp_obj_t pyb_lcd_make_new(mp_obj_t type_in, mp_uint_t n_args, mp_uint_t n_kw, const mp_obj_t *args) {
+STATIC mp_obj_t pyb_lcd_make_new(const mp_obj_type_t *type, mp_uint_t n_args, mp_uint_t n_kw, const mp_obj_t *args) {
     // check arguments
     mp_arg_check_num(n_args, n_kw, 1, 1, false);
 
@@ -207,16 +207,16 @@ STATIC mp_obj_t pyb_lcd_make_new(mp_obj_t type_in, mp_uint_t n_args, mp_uint_t n
     // TODO accept an SPI object and pin objects for full customisation
     if ((lcd_id[0] | 0x20) == 'x' && lcd_id[1] == '\0') {
         lcd->spi = &SPIHandle1;
-        lcd->pin_cs1 = &pin_A2; // X3
-        lcd->pin_rst = &pin_A3; // X4
-        lcd->pin_a0 = &pin_A4; // X5
-        lcd->pin_bl = &pin_C5; // X12
+        lcd->pin_cs1 = &pyb_pin_X3;
+        lcd->pin_rst = &pyb_pin_X4;
+        lcd->pin_a0 = &pyb_pin_X5;
+        lcd->pin_bl = &pyb_pin_X12;
     } else if ((lcd_id[0] | 0x20) == 'y' && lcd_id[1] == '\0') {
         lcd->spi = &SPIHandle2;
-        lcd->pin_cs1 = &pin_B8; // Y3
-        lcd->pin_rst = &pin_B9; // Y4
-        lcd->pin_a0 = &pin_B12; // Y5
-        lcd->pin_bl = &pin_B1; // Y12
+        lcd->pin_cs1 = &pyb_pin_Y3;
+        lcd->pin_rst = &pyb_pin_Y4;
+        lcd->pin_a0 = &pyb_pin_Y5;
+        lcd->pin_bl = &pyb_pin_Y12;
     } else {
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError, "LCD bus '%s' does not exist", lcd_id));
     }

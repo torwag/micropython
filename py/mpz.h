@@ -39,32 +39,52 @@
 // unsigned versions.
 //
 // MPZ_DIG_SIZE can be between 4 and 8*sizeof(mpz_dig_t), but it makes most
-// sense to have it as large as possible.  Below, the type is auto-detected
-// depending on the machine, but it (and MPZ_DIG_SIZE) can be freely changed so
-// long as the constraints mentioned above are met.
+// sense to have it as large as possible.  If MPZ_DIG_SIZE is not already
+// defined then it is auto-detected below, depending on the machine.  The types
+// are then set based on the value of MPZ_DIG_SIZE (although they can be freely
+// changed so long as the constraints mentioned above are met).
 
-#if defined(__x86_64__) || defined(_WIN64)
-// 64-bit machine, using 32-bit storage for digits
+#ifndef MPZ_DIG_SIZE
+  #if defined(__x86_64__) || defined(_WIN64)
+    // 64-bit machine, using 32-bit storage for digits
+    #define MPZ_DIG_SIZE (32)
+  #else
+    // default: 32-bit machine, using 16-bit storage for digits
+    #define MPZ_DIG_SIZE (16)
+  #endif
+#endif
+
+#if MPZ_DIG_SIZE > 16
 typedef uint32_t mpz_dig_t;
 typedef uint64_t mpz_dbl_dig_t;
 typedef int64_t mpz_dbl_dig_signed_t;
-#define MPZ_DIG_SIZE (32)
-#else
-// 32-bit machine, using 16-bit storage for digits
+#elif MPZ_DIG_SIZE > 8
 typedef uint16_t mpz_dig_t;
 typedef uint32_t mpz_dbl_dig_t;
 typedef int32_t mpz_dbl_dig_signed_t;
-#define MPZ_DIG_SIZE (16)
+#elif MPZ_DIG_SIZE > 4
+typedef uint8_t mpz_dig_t;
+typedef uint16_t mpz_dbl_dig_t;
+typedef int16_t mpz_dbl_dig_signed_t;
+#else
+typedef uint8_t mpz_dig_t;
+typedef uint8_t mpz_dbl_dig_t;
+typedef int8_t mpz_dbl_dig_signed_t;
 #endif
 
 #ifdef _WIN64
-  #define MPZ_LONG_1 1i64
+  #ifdef __MINGW32__
+    #define MPZ_LONG_1 1LL
+  #else
+    #define MPZ_LONG_1 1i64
+  #endif
 #else
   #define MPZ_LONG_1 1L
 #endif
 
-#define MPZ_NUM_DIG_FOR_INT (sizeof(mp_int_t) * 8 / MPZ_DIG_SIZE + 1)
-#define MPZ_NUM_DIG_FOR_LL (sizeof(long long) * 8 / MPZ_DIG_SIZE + 1)
+// these define the maximum storage needed to hold an int or long long
+#define MPZ_NUM_DIG_FOR_INT ((sizeof(mp_int_t) * 8 + MPZ_DIG_SIZE - 1) / MPZ_DIG_SIZE)
+#define MPZ_NUM_DIG_FOR_LL ((sizeof(long long) * 8 + MPZ_DIG_SIZE - 1) / MPZ_DIG_SIZE)
 
 typedef struct _mpz_t {
     mp_uint_t neg : 1;
@@ -82,17 +102,6 @@ void mpz_init_from_int(mpz_t *z, mp_int_t val);
 void mpz_init_fixed_from_int(mpz_t *z, mpz_dig_t *dig, mp_uint_t dig_alloc, mp_int_t val);
 void mpz_deinit(mpz_t *z);
 
-mpz_t *mpz_zero(void);
-mpz_t *mpz_from_int(mp_int_t i);
-mpz_t *mpz_from_ll(long long i, bool is_signed);
-#if MICROPY_PY_BUILTINS_FLOAT
-mpz_t *mpz_from_float(mp_float_t i);
-#endif
-mpz_t *mpz_from_str(const char *str, mp_uint_t len, bool neg, mp_uint_t base);
-void mpz_free(mpz_t *z);
-
-mpz_t *mpz_clone(const mpz_t *src);
-
 void mpz_set(mpz_t *dest, const mpz_t *src);
 void mpz_set_from_int(mpz_t *z, mp_int_t src);
 void mpz_set_from_ll(mpz_t *z, long long i, bool is_signed);
@@ -102,25 +111,13 @@ void mpz_set_from_float(mpz_t *z, mp_float_t src);
 mp_uint_t mpz_set_from_str(mpz_t *z, const char *str, mp_uint_t len, bool neg, mp_uint_t base);
 
 bool mpz_is_zero(const mpz_t *z);
-bool mpz_is_pos(const mpz_t *z);
-bool mpz_is_neg(const mpz_t *z);
-bool mpz_is_odd(const mpz_t *z);
-bool mpz_is_even(const mpz_t *z);
-
 int mpz_cmp(const mpz_t *lhs, const mpz_t *rhs);
-
-mpz_t *mpz_abs(const mpz_t *z);
-mpz_t *mpz_neg(const mpz_t *z);
-mpz_t *mpz_add(const mpz_t *lhs, const mpz_t *rhs);
-mpz_t *mpz_sub(const mpz_t *lhs, const mpz_t *rhs);
-mpz_t *mpz_mul(const mpz_t *lhs, const mpz_t *rhs);
-mpz_t *mpz_pow(const mpz_t *lhs, const mpz_t *rhs);
 
 void mpz_abs_inpl(mpz_t *dest, const mpz_t *z);
 void mpz_neg_inpl(mpz_t *dest, const mpz_t *z);
 void mpz_not_inpl(mpz_t *dest, const mpz_t *z);
-void mpz_shl_inpl(mpz_t *dest, const mpz_t *lhs, mp_int_t rhs);
-void mpz_shr_inpl(mpz_t *dest, const mpz_t *lhs, mp_int_t rhs);
+void mpz_shl_inpl(mpz_t *dest, const mpz_t *lhs, mp_uint_t rhs);
+void mpz_shr_inpl(mpz_t *dest, const mpz_t *lhs, mp_uint_t rhs);
 void mpz_add_inpl(mpz_t *dest, const mpz_t *lhs, const mpz_t *rhs);
 void mpz_sub_inpl(mpz_t *dest, const mpz_t *lhs, const mpz_t *rhs);
 void mpz_mul_inpl(mpz_t *dest, const mpz_t *lhs, const mpz_t *rhs);
@@ -128,17 +125,12 @@ void mpz_pow_inpl(mpz_t *dest, const mpz_t *lhs, const mpz_t *rhs);
 void mpz_and_inpl(mpz_t *dest, const mpz_t *lhs, const mpz_t *rhs);
 void mpz_or_inpl(mpz_t *dest, const mpz_t *lhs, const mpz_t *rhs);
 void mpz_xor_inpl(mpz_t *dest, const mpz_t *lhs, const mpz_t *rhs);
-
-mpz_t *mpz_gcd(const mpz_t *z1, const mpz_t *z2);
-mpz_t *mpz_lcm(const mpz_t *z1, const mpz_t *z2);
-void mpz_divmod(const mpz_t *lhs, const mpz_t *rhs, mpz_t **quo, mpz_t **rem);
 void mpz_divmod_inpl(mpz_t *dest_quo, mpz_t *dest_rem, const mpz_t *lhs, const mpz_t *rhs);
-mpz_t *mpz_div(const mpz_t *lhs, const mpz_t *rhs);
-mpz_t *mpz_mod(const mpz_t *lhs, const mpz_t *rhs);
 
 mp_int_t mpz_hash(const mpz_t *z);
 bool mpz_as_int_checked(const mpz_t *z, mp_int_t *value);
 bool mpz_as_uint_checked(const mpz_t *z, mp_uint_t *value);
+void mpz_as_bytes(const mpz_t *z, bool big_endian, mp_uint_t len, byte *buf);
 #if MICROPY_PY_BUILTINS_FLOAT
 mp_float_t mpz_as_float(const mpz_t *z);
 #endif

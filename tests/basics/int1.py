@@ -67,7 +67,6 @@ test('  1' + chr(2) + '  ', 0)
 test('', 0)
 test(' ', 0)
 test('  \t\t  ', 0)
-test("\u0200", 0)
 test('0x', 16)
 test('0x', 0)
 test('0o', 8)
@@ -78,6 +77,13 @@ test('0b2', 2)
 test('0o8', 8)
 test('0xg', 16)
 test('1 1', 16)
+test('123', 37)
 
 # check that we don't parse this as a floating point number
 print(0x1e+1)
+
+# can't convert list to int
+try:
+    int([])
+except TypeError:
+    print("TypeError")

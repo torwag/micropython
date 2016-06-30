@@ -28,9 +28,9 @@
 
 #include "py/obj.h"
 
-mp_obj_t mp_builtin___import__(mp_uint_t n_args, const mp_obj_t *args);
-mp_obj_t mp_builtin_open(mp_uint_t n_args, const mp_obj_t *args, mp_map_t *kwargs);
-mp_obj_t mp_micropython_mem_info(mp_uint_t n_args, const mp_obj_t *args);
+mp_obj_t mp_builtin___import__(size_t n_args, const mp_obj_t *args);
+mp_obj_t mp_builtin_open(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs);
+mp_obj_t mp_micropython_mem_info(size_t n_args, const mp_obj_t *args);
 
 MP_DECLARE_CONST_FUN_OBJ(mp_builtin___build_class___obj);
 MP_DECLARE_CONST_FUN_OBJ(mp_builtin___import___obj);
@@ -71,6 +71,10 @@ MP_DECLARE_CONST_FUN_OBJ(mp_builtin_repr_obj);
 MP_DECLARE_CONST_FUN_OBJ(mp_builtin_round_obj);
 MP_DECLARE_CONST_FUN_OBJ(mp_builtin_sorted_obj);
 MP_DECLARE_CONST_FUN_OBJ(mp_builtin_sum_obj);
+// Defined by a port, but declared here for simplicity
+MP_DECLARE_CONST_FUN_OBJ(mp_builtin_help_obj);
+MP_DECLARE_CONST_FUN_OBJ(mp_builtin_input_obj);
+MP_DECLARE_CONST_FUN_OBJ(mp_builtin_open_obj);
 
 MP_DECLARE_CONST_FUN_OBJ(mp_namedtuple_obj);
 
@@ -87,13 +91,15 @@ extern const mp_obj_module_t mp_module_io;
 extern const mp_obj_module_t mp_module_math;
 extern const mp_obj_module_t mp_module_cmath;
 extern const mp_obj_module_t mp_module_micropython;
-extern const mp_obj_module_t mp_module_struct;
+extern const mp_obj_module_t mp_module_ustruct;
 extern const mp_obj_module_t mp_module_sys;
 extern const mp_obj_module_t mp_module_gc;
+extern const mp_obj_module_t mp_module_thread;
 
 extern const mp_obj_dict_t mp_module_builtins_globals;
 
 // extmod modules
+extern const mp_obj_module_t mp_module_uerrno;
 extern const mp_obj_module_t mp_module_uctypes;
 extern const mp_obj_module_t mp_module_uzlib;
 extern const mp_obj_module_t mp_module_ujson;
@@ -101,5 +107,16 @@ extern const mp_obj_module_t mp_module_ure;
 extern const mp_obj_module_t mp_module_uheapq;
 extern const mp_obj_module_t mp_module_uhashlib;
 extern const mp_obj_module_t mp_module_ubinascii;
+extern const mp_obj_module_t mp_module_urandom;
+extern const mp_obj_module_t mp_module_ussl;
+extern const mp_obj_module_t mp_module_machine;
+extern const mp_obj_module_t mp_module_lwip;
+extern const mp_obj_module_t mp_module_websocket;
+extern const mp_obj_module_t mp_module_webrepl;
+extern const mp_obj_module_t mp_module_framebuf;
+extern const mp_obj_module_t mp_module_btree;
+
+// extmod functions
+MP_DECLARE_CONST_FUN_OBJ(pyb_mount_obj);
 
 #endif // __MICROPY_INCLUDED_PY_BUILTIN_H__

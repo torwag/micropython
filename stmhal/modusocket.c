@@ -26,12 +26,13 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <errno.h>
 
 #include "py/nlr.h"
 #include "py/objtuple.h"
 #include "py/objlist.h"
 #include "py/runtime.h"
+#include "py/mperrno.h"
+#include "netutils.h"
 #include "modnetwork.h"
 
 /******************************************************************************/
@@ -40,7 +41,7 @@
 STATIC const mp_obj_type_t socket_type;
 
 // constructor socket(family=AF_INET, type=SOCK_STREAM, proto=0, fileno=None)
-STATIC mp_obj_t socket_make_new(mp_obj_t type_in, mp_uint_t n_args, mp_uint_t n_kw, const mp_obj_t *args) {
+STATIC mp_obj_t socket_make_new(const mp_obj_type_t *type, mp_uint_t n_args, mp_uint_t n_kw, const mp_obj_t *args) {
     mp_arg_check_num(n_args, n_kw, 0, 4, false);
 
     // create socket object (not bound to any NIC yet)
@@ -93,7 +94,7 @@ STATIC mp_obj_t socket_bind(mp_obj_t self_in, mp_obj_t addr_in) {
 
     // get address
     uint8_t ip[MOD_NETWORK_IPADDR_BUF_SIZE];
-    mp_uint_t port = mod_network_parse_inet_addr(addr_in, ip);
+    mp_uint_t port = netutils_parse_inet_addr(addr_in, ip, NETUTILS_BIG);
 
     // check if we need to select a NIC
     socket_select_nic(self, ip);
@@ -115,7 +116,7 @@ STATIC mp_obj_t socket_listen(mp_obj_t self_in, mp_obj_t backlog) {
     if (self->nic == MP_OBJ_NULL) {
         // not connected
         // TODO I think we can listen even if not bound...
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(ENOTCONN)));
+        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ENOTCONN)));
     }
 
     int _errno;
@@ -153,7 +154,7 @@ STATIC mp_obj_t socket_accept(mp_obj_t self_in) {
     // make the return value
     mp_obj_tuple_t *client = mp_obj_new_tuple(2, NULL);
     client->items[0] = socket2;
-    client->items[1] = mod_network_format_inet_addr(ip, port);
+    client->items[1] = netutils_format_inet_addr(ip, port, NETUTILS_BIG);
 
     return client;
 }
@@ -165,7 +166,7 @@ STATIC mp_obj_t socket_connect(mp_obj_t self_in, mp_obj_t addr_in) {
 
     // get address
     uint8_t ip[MOD_NETWORK_IPADDR_BUF_SIZE];
-    mp_uint_t port = mod_network_parse_inet_addr(addr_in, ip);
+    mp_uint_t port = netutils_parse_inet_addr(addr_in, ip, NETUTILS_BIG);
 
     // check if we need to select a NIC
     socket_select_nic(self, ip);
@@ -185,7 +186,7 @@ STATIC mp_obj_t socket_send(mp_obj_t self_in, mp_obj_t buf_in) {
     mod_network_socket_obj_t *self = self_in;
     if (self->nic == MP_OBJ_NULL) {
         // not connected
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(EPIPE)));
+        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_EPIPE)));
     }
     mp_buffer_info_t bufinfo;
     mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
@@ -203,7 +204,7 @@ STATIC mp_obj_t socket_recv(mp_obj_t self_in, mp_obj_t len_in) {
     mod_network_socket_obj_t *self = self_in;
     if (self->nic == MP_OBJ_NULL) {
         // not connected
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(ENOTCONN)));
+        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ENOTCONN)));
     }
     mp_int_t len = mp_obj_get_int(len_in);
     vstr_t vstr;
@@ -231,7 +232,7 @@ STATIC mp_obj_t socket_sendto(mp_obj_t self_in, mp_obj_t data_in, mp_obj_t addr_
 
     // get address
     uint8_t ip[MOD_NETWORK_IPADDR_BUF_SIZE];
-    mp_uint_t port = mod_network_parse_inet_addr(addr_in, ip);
+    mp_uint_t port = netutils_parse_inet_addr(addr_in, ip, NETUTILS_BIG);
 
     // check if we need to select a NIC
     socket_select_nic(self, ip);
@@ -252,7 +253,7 @@ STATIC mp_obj_t socket_recvfrom(mp_obj_t self_in, mp_obj_t len_in) {
     mod_network_socket_obj_t *self = self_in;
     if (self->nic == MP_OBJ_NULL) {
         // not connected
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(ENOTCONN)));
+        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ENOTCONN)));
     }
     vstr_t vstr;
     vstr_init_len(&vstr, mp_obj_get_int(len_in));
@@ -270,7 +271,7 @@ STATIC mp_obj_t socket_recvfrom(mp_obj_t self_in, mp_obj_t len_in) {
         vstr.len = ret;
         tuple[0] = mp_obj_new_str_from_vstr(&mp_type_bytes, &vstr);
     }
-    tuple[1] = mod_network_format_inet_addr(ip, port);
+    tuple[1] = netutils_format_inet_addr(ip, port, NETUTILS_BIG);
     return mp_obj_new_tuple(2, tuple);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(socket_recvfrom_obj, socket_recvfrom);
@@ -286,7 +287,7 @@ STATIC mp_obj_t socket_setsockopt(mp_uint_t n_args, const mp_obj_t *args) {
     mp_uint_t optlen;
     mp_int_t val;
     if (mp_obj_is_integer(args[3])) {
-        val = mp_obj_int_get_truncated(args[3]);
+        val = mp_obj_get_int_truncated(args[3]);
         optval = &val;
         optlen = sizeof(val);
     } else {
@@ -313,13 +314,13 @@ STATIC mp_obj_t socket_settimeout(mp_obj_t self_in, mp_obj_t timeout_in) {
     mod_network_socket_obj_t *self = self_in;
     if (self->nic == MP_OBJ_NULL) {
         // not connected
-        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(ENOTCONN)));
+        nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(MP_ENOTCONN)));
     }
     mp_uint_t timeout;
     if (timeout_in == mp_const_none) {
         timeout = -1;
     } else {
-        #if MICROPY_PY_BUILTIN_FLOAT
+        #if MICROPY_PY_BUILTINS_FLOAT
         timeout = 1000 * mp_obj_get_float(timeout_in);
         #else
         timeout = 1000 * mp_obj_get_int(timeout_in);
@@ -375,7 +376,7 @@ STATIC const mp_obj_type_t socket_type = {
     { &mp_type_type },
     .name = MP_QSTR_socket,
     .make_new = socket_make_new,
-    .stream_p = &socket_stream_p,
+    .protocol = &socket_stream_p,
     .locals_dict = (mp_obj_t)&socket_locals_dict,
 };
 
@@ -404,7 +405,7 @@ STATIC mp_obj_t mod_usocket_getaddrinfo(mp_obj_t host_in, mp_obj_t port_in) {
             tuple->items[1] = MP_OBJ_NEW_SMALL_INT(MOD_NETWORK_SOCK_STREAM);
             tuple->items[2] = MP_OBJ_NEW_SMALL_INT(0);
             tuple->items[3] = MP_OBJ_NEW_QSTR(MP_QSTR_);
-            tuple->items[4] = mod_network_format_inet_addr(out_ip, port);
+            tuple->items[4] = netutils_format_inet_addr(out_ip, port, NETUTILS_BIG);
             return mp_obj_new_list(1, (mp_obj_t*)&tuple);
         }
     }

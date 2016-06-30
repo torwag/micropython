@@ -31,6 +31,7 @@
 
 #include "py/mpconfig.h"
 #include "py/misc.h"
+#include "py/mpprint.h"
 
 // returned value is always at least 1 greater than argument
 #define ROUND_ALLOC(a) (((a) & ((~0) - 7)) + 8)
@@ -51,9 +52,10 @@ void vstr_init(vstr_t *vstr, size_t alloc) {
     vstr->fixed_buf = false;
 }
 
-// Init the vstr so it allocs exactly enough ram to hold given length, and set the length.
+// Init the vstr so it allocs exactly enough ram to hold a null-terminated
+// string of the given length, and set the length.
 void vstr_init_len(vstr_t *vstr, size_t len) {
-    vstr_init(vstr, len);
+    vstr_init(vstr, len + 1);
     vstr->len = len;
 }
 
@@ -63,6 +65,12 @@ void vstr_init_fixed_buf(vstr_t *vstr, size_t alloc, char *buf) {
     vstr->buf = buf;
     vstr->had_error = false;
     vstr->fixed_buf = true;
+}
+
+void vstr_init_print(vstr_t *vstr, size_t alloc, mp_print_t *print) {
+    vstr_init(vstr, alloc);
+    print->data = vstr;
+    print->print_strn = (mp_print_strn_t)vstr_add_strn;
 }
 
 void vstr_clear(vstr_t *vstr) {
@@ -143,7 +151,7 @@ STATIC bool vstr_ensure_extra(vstr_t *vstr, size_t size) {
         if (vstr->fixed_buf) {
             return false;
         }
-        size_t new_alloc = ROUND_ALLOC((vstr->len + size) * 2);
+        size_t new_alloc = ROUND_ALLOC((vstr->len + size) + 16);
         char *new_buf = m_renew(char, vstr->buf, vstr->alloc, new_alloc);
         if (new_buf == NULL) {
             vstr->had_error = true;
@@ -173,8 +181,14 @@ char *vstr_add_len(vstr_t *vstr, size_t len) {
 
 // Doesn't increase len, just makes sure there is a null byte at the end
 char *vstr_null_terminated_str(vstr_t *vstr) {
-    if (vstr->had_error || !vstr_ensure_extra(vstr, 1)) {
+    if (vstr->had_error) {
         return NULL;
+    }
+    // If there's no more room, add single byte
+    if (vstr->alloc == vstr->len) {
+        if (vstr_extend(vstr, 1) == NULL) {
+            return NULL;
+        }
     }
     vstr->buf[vstr->len] = '\0';
     return vstr->buf;
@@ -237,8 +251,8 @@ void vstr_add_strn(vstr_t *vstr, const char *str, size_t len) {
     if (vstr->had_error || !vstr_ensure_extra(vstr, len)) {
         // if buf is fixed, we got here because there isn't enough room left
         // so just try to copy as much as we can, with room for a possible null byte
-        if (vstr->fixed_buf && vstr->len + 1 < vstr->alloc) {
-            len = vstr->alloc - vstr->len - 1;
+        if (vstr->fixed_buf && vstr->len < vstr->alloc) {
+            len = vstr->alloc - vstr->len;
             goto copy;
         }
         return;
@@ -318,36 +332,6 @@ void vstr_printf(vstr_t *vstr, const char *fmt, ...) {
 }
 
 void vstr_vprintf(vstr_t *vstr, const char *fmt, va_list ap) {
-    if (vstr->had_error || !vstr_ensure_extra(vstr, strlen(fmt))) {
-        return;
-    }
-
-    while (1) {
-        // try to print in the allocated space
-        // need to make a copy of the va_list because we may call vsnprintf multiple times
-        size_t size = vstr->alloc - vstr->len;
-        va_list ap2;
-        va_copy(ap2, ap);
-        int n = vsnprintf(vstr->buf + vstr->len, size, fmt, ap2);
-        va_end(ap2);
-
-        // if that worked, return
-        if (n > -1 && (size_t)n < size) {
-            vstr->len += n;
-            return;
-        }
-
-        // else try again with more space
-        if (n > -1) { // glibc 2.1
-            // n + 1 is precisely what is needed
-            if (!vstr_ensure_extra(vstr, n + 1)) {
-                return;
-            }
-        } else { // glibc 2.0
-            // increase to twice the old size
-            if (!vstr_ensure_extra(vstr, size * 2)) {
-                return;
-            }
-        }
-    }
+    mp_print_t print = {vstr, (mp_print_strn_t)vstr_add_strn};
+    mp_vprintf(&print, fmt, ap);
 }

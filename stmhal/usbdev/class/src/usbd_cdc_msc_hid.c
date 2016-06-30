@@ -38,6 +38,7 @@
 #define HID_DESC_OFFSET_REPORT_DESC_LEN (16)
 #define HID_DESC_OFFSET_MAX_PACKET_LO (22)
 #define HID_DESC_OFFSET_MAX_PACKET_HI (23)
+#define HID_DESC_OFFSET_POLLING_INTERVAL (24)
 #define HID_SUBDESC_LEN (9)
 
 #define CDC_IFACE_NUM_ALONE (0)
@@ -558,6 +559,11 @@ __ALIGN_BEGIN const uint8_t USBD_HID_KEYBOARD_ReportDesc[USBD_HID_KEYBOARD_REPOR
     0xC0            // End Collection
 };
 
+// return the saved usb mode
+uint8_t USBD_GetMode() {
+    return usbd_mode;
+}
+
 int USBD_SelectMode(uint32_t mode, USBD_HID_ModeInfoTypeDef *hid_info) {
     // save mode
     usbd_mode = mode;
@@ -605,6 +611,7 @@ int USBD_SelectMode(uint32_t mode, USBD_HID_ModeInfoTypeDef *hid_info) {
         hid_desc[HID_DESC_OFFSET_REPORT_DESC_LEN] = hid_info->report_desc_len;
         hid_desc[HID_DESC_OFFSET_MAX_PACKET_LO] = hid_info->max_packet_len;
         hid_desc[HID_DESC_OFFSET_MAX_PACKET_HI] = 0;
+        hid_desc[HID_DESC_OFFSET_POLLING_INTERVAL] = hid_info->polling_interval;
         hid_report_desc = hid_info->report_desc;
     }
 

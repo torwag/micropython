@@ -29,6 +29,9 @@
 
 #include "py/mpstate.h"
 #include "py/lexer.h"
+#include "py/runtime.h"
+
+#if MICROPY_ENABLE_COMPILER
 
 #define TAB_SIZE (8)
 
@@ -58,33 +61,33 @@ STATIC bool is_physical_newline(mp_lexer_t *lex) {
     return lex->chr0 == '\n';
 }
 
-STATIC bool is_char(mp_lexer_t *lex, char c) {
+STATIC bool is_char(mp_lexer_t *lex, byte c) {
     return lex->chr0 == c;
 }
 
-STATIC bool is_char_or(mp_lexer_t *lex, char c1, char c2) {
+STATIC bool is_char_or(mp_lexer_t *lex, byte c1, byte c2) {
     return lex->chr0 == c1 || lex->chr0 == c2;
 }
 
-STATIC bool is_char_or3(mp_lexer_t *lex, char c1, char c2, char c3) {
+STATIC bool is_char_or3(mp_lexer_t *lex, byte c1, byte c2, byte c3) {
     return lex->chr0 == c1 || lex->chr0 == c2 || lex->chr0 == c3;
 }
 
 /*
-STATIC bool is_char_following(mp_lexer_t *lex, char c) {
+STATIC bool is_char_following(mp_lexer_t *lex, byte c) {
     return lex->chr1 == c;
 }
 */
 
-STATIC bool is_char_following_or(mp_lexer_t *lex, char c1, char c2) {
+STATIC bool is_char_following_or(mp_lexer_t *lex, byte c1, byte c2) {
     return lex->chr1 == c1 || lex->chr1 == c2;
 }
 
-STATIC bool is_char_following_following_or(mp_lexer_t *lex, char c1, char c2) {
+STATIC bool is_char_following_following_or(mp_lexer_t *lex, byte c1, byte c2) {
     return lex->chr2 == c1 || lex->chr2 == c2;
 }
 
-STATIC bool is_char_and(mp_lexer_t *lex, char c1, char c2) {
+STATIC bool is_char_and(mp_lexer_t *lex, byte c1, byte c2) {
     return lex->chr0 == c1 && lex->chr1 == c2;
 }
 
@@ -104,20 +107,20 @@ STATIC bool is_following_digit(mp_lexer_t *lex) {
     return unichar_isdigit(lex->chr1);
 }
 
-STATIC bool is_following_letter(mp_lexer_t *lex) {
-    return unichar_isalpha(lex->chr1);
+STATIC bool is_following_base_char(mp_lexer_t *lex) {
+    const unichar chr1 = lex->chr1 | 0x20;
+    return chr1 == 'b' || chr1 == 'o' || chr1 == 'x';
 }
 
 STATIC bool is_following_odigit(mp_lexer_t *lex) {
     return lex->chr1 >= '0' && lex->chr1 <= '7';
 }
 
-// TODO UNICODE include unicode characters in definition of identifiers
+// to easily parse utf-8 identifiers we allow any raw byte with high bit set
 STATIC bool is_head_of_identifier(mp_lexer_t *lex) {
-    return is_letter(lex) || lex->chr0 == '_';
+    return is_letter(lex) || lex->chr0 == '_' || lex->chr0 >= 0x80;
 }
 
-// TODO UNICODE include unicode characters in definition of identifiers
 STATIC bool is_tail_of_identifier(mp_lexer_t *lex) {
     return is_head_of_identifier(lex) || is_digit(lex);
 }
@@ -187,7 +190,7 @@ STATIC void indent_pop(mp_lexer_t *lex) {
 //     c<op> = continue with <op>, if this opchar matches then continue matching
 // this means if the start of two ops are the same then they are equal til the last char
 
-STATIC const char *tok_enc =
+STATIC const char *const tok_enc =
     "()[]{},:;@~" // singles
     "<e=c<e="     // < <= << <<=
     ">e=c>e="     // > >= >> >>=
@@ -224,13 +227,17 @@ STATIC const uint8_t tok_enc_kind[] = {
 };
 
 // must have the same order as enum in lexer.h
-STATIC const char *tok_kw[] = {
+STATIC const char *const tok_kw[] = {
     "False",
     "None",
     "True",
     "and",
     "as",
     "assert",
+    #if MICROPY_PY_ASYNC_AWAIT
+    "async",
+    "await",
+    #endif
     "break",
     "class",
     "continue",
@@ -261,16 +268,6 @@ STATIC const char *tok_kw[] = {
     "__debug__",
 };
 
-STATIC mp_uint_t hex_digit(unichar c) {
-    // c is assumed to be hex digit
-    mp_uint_t n = c - '0';
-    if (n > 9) {
-        n &= ~('a' - 'A');
-        n -= ('A' - ('9' + 1));
-    }
-    return n;
-}
-
 // This is called with CUR_CHAR() before first hex digit, and should return with
 // it pointing to last hex digit
 // num_digits must be greater than zero
@@ -282,7 +279,7 @@ STATIC bool get_hex(mp_lexer_t *lex, mp_uint_t num_digits, mp_uint_t *result) {
         if (!unichar_isxdigit(c)) {
             return false;
         }
-        num = (num << 4) + hex_digit(c);
+        num = (num << 4) + unichar_xdigit_value(c);
     }
     *result = num;
     return true;
@@ -465,8 +462,8 @@ STATIC void mp_lexer_next_token_into(mp_lexer_t *lex, bool first_token) {
                             {
                                 mp_uint_t num = 0;
                                 if (!get_hex(lex, (c == 'x' ? 2 : c == 'u' ? 4 : 8), &num)) {
-                                    // TODO error message
-                                    assert(0);
+                                    // not enough hex chars for escape sequence
+                                    lex->tok_kind = MP_TOKEN_INVALID;
                                 }
                                 c = num;
                                 break;
@@ -477,7 +474,7 @@ STATIC void mp_lexer_next_token_into(mp_lexer_t *lex, bool first_token) {
                                 // 3MB of text; even gzip-compressed and with minimal structure, it'll take
                                 // roughly half a meg of storage. This form of Unicode escape may be added
                                 // later on, but it's definitely not a priority right now. -- CJA 20140607
-                                assert(!"Unicode name escapes not supported");
+                                mp_not_implemented("unicode name escapes");
                                 break;
                             default:
                                 if (c >= '0' && c <= '7') {
@@ -497,20 +494,25 @@ STATIC void mp_lexer_next_token_into(mp_lexer_t *lex, bool first_token) {
                         }
                     }
                     if (c != MP_LEXER_EOF) {
-                        #if MICROPY_PY_BUILTINS_STR_UNICODE
-                        if (c < 0x110000 && !is_bytes) {
-                            vstr_add_char(&lex->vstr, c);
-                        } else if (c < 0x100 && is_bytes) {
-                            vstr_add_byte(&lex->vstr, c);
-                        }
-                        #else
-                        // without unicode everything is just added as an 8-bit byte
-                        if (c < 0x100) {
-                            vstr_add_byte(&lex->vstr, c);
-                        }
-                        #endif
-                        else {
-                            assert(!"TODO: Throw an error, invalid escape code probably");
+                        if (MICROPY_PY_BUILTINS_STR_UNICODE_DYNAMIC) {
+                            if (c < 0x110000 && !is_bytes) {
+                                vstr_add_char(&lex->vstr, c);
+                            } else if (c < 0x100 && is_bytes) {
+                                vstr_add_byte(&lex->vstr, c);
+                            } else {
+                                // unicode character out of range
+                                // this raises a generic SyntaxError; could provide more info
+                                lex->tok_kind = MP_TOKEN_INVALID;
+                            }
+                        } else {
+                            // without unicode everything is just added as an 8-bit byte
+                            if (c < 0x100) {
+                                vstr_add_byte(&lex->vstr, c);
+                            } else {
+                                // 8-bit character out of range
+                                // this raises a generic SyntaxError; could provide more info
+                                lex->tok_kind = MP_TOKEN_INVALID;
+                            }
                         }
                     }
                 } else {
@@ -533,13 +535,13 @@ STATIC void mp_lexer_next_token_into(mp_lexer_t *lex, bool first_token) {
     } else if (is_head_of_identifier(lex)) {
         lex->tok_kind = MP_TOKEN_NAME;
 
-        // get first char
-        vstr_add_char(&lex->vstr, CUR_CHAR(lex));
+        // get first char (add as byte to remain 8-bit clean and support utf-8)
+        vstr_add_byte(&lex->vstr, CUR_CHAR(lex));
         next_char(lex);
 
         // get tail chars
         while (!is_end(lex) && is_tail_of_identifier(lex)) {
-            vstr_add_char(&lex->vstr, CUR_CHAR(lex));
+            vstr_add_byte(&lex->vstr, CUR_CHAR(lex));
             next_char(lex);
         }
 
@@ -549,7 +551,7 @@ STATIC void mp_lexer_next_token_into(mp_lexer_t *lex, bool first_token) {
             lex->tok_kind = MP_TOKEN_FLOAT_OR_IMAG;
         } else {
             lex->tok_kind = MP_TOKEN_INTEGER;
-            if (is_char(lex, '0') && is_following_letter(lex)) {
+            if (is_char(lex, '0') && is_following_base_char(lex)) {
                 forced_integer = true;
             }
         }
@@ -783,7 +785,7 @@ void mp_lexer_show_token(const mp_lexer_t *lex) {
             unichar c = utf8_get_char(i);
             i = utf8_next_char(i);
             if (unichar_isprint(c)) {
-                printf("%c", c);
+                printf("%c", (int)c);
             } else {
                 printf("?");
             }
@@ -792,3 +794,5 @@ void mp_lexer_show_token(const mp_lexer_t *lex) {
     printf("\n");
 }
 #endif
+
+#endif // MICROPY_ENABLE_COMPILER

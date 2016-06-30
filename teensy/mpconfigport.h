@@ -27,9 +27,6 @@
 #define MICROPY_EMERGENCY_EXCEPTION_BUF_SIZE  (0)
 
 // extra built in names to add to the global namespace
-extern const struct _mp_obj_fun_builtin_t mp_builtin_help_obj;
-extern const struct _mp_obj_fun_builtin_t mp_builtin_input_obj;
-extern const struct _mp_obj_fun_builtin_t mp_builtin_open_obj;
 #define MICROPY_PORT_BUILTINS \
     { MP_OBJ_NEW_QSTR(MP_QSTR_help), (mp_obj_t)&mp_builtin_help_obj }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_input), (mp_obj_t)&mp_builtin_input_obj }, \
@@ -65,6 +62,8 @@ typedef unsigned int mp_uint_t; // must be pointer size
 typedef void *machine_ptr_t; // must be of pointer size
 typedef const void *machine_const_ptr_t; // must be of pointer size
 typedef long mp_off_t;
+
+#define MP_PLAT_PRINT_STRN(str, len) mp_hal_stdout_tx_strn_cooked(str, len)
 
 // We have inlined IRQ functions for efficiency (they are generally
 // 1 machine instruction).
@@ -146,5 +145,5 @@ __attribute__(( always_inline )) static inline mp_uint_t disable_irq(void) {
 
 #define MICROPY_MATH_SQRT_ASM     (1)
 
-#define MICROPY_HAL_H           "teensy_hal.h"
+#define MICROPY_MPHALPORT_H     "teensy_hal.h"
 #define MICROPY_PIN_DEFS_PORT_H "pin_defs_teensy.h"
