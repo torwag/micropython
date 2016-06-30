@@ -39,15 +39,19 @@ $ git submodule update --init
 See the README in the repository root for more information about external
 dependencies.
 
+Starting from the esp8266 folder:
+```bash
+$ cd esp8266
+```
+
 The MicroPython cross-compiler must be built to pre-compile some of the
 built-in scripts to bytecode.  This can be done using:
 ```bash
-$ make -C mpy-cross
+$ make -C ../mpy-cross
 ```
 
 Then, to build MicroPython for the ESP8266, just run:
 ```bash
-$ cd esp8266
 $ make axtls
 $ make
 ```
@@ -58,6 +62,12 @@ firmware, you should erase flash completely:
 ```
 esptool.py --port /dev/ttyXXX erase_flash
 ```
+
+As for now, esptool.py is a python2 script. If you use python 3 as default python version, you might want have to change the shebang of the file to
+```
+#!/usr/bin/python2
+```
+to make sure, the script is executed under python2 even if called via make.
 
 Erase flash also as a troubleshooting measure, if a module doesn't behave as
 expected.
