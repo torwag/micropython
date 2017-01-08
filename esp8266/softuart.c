@@ -144,7 +144,7 @@ void Softuart_Init(Softuart *s, uint32_t baudrate)
     //os_printf("SOFTUART ERROR: Set rx pin (%d)\r\n",s->pin_rx.gpio_mux_name);
   } else {
     //enable pin as gpio
-      PIN_FUNC_SELECT(s->pin_rx.gpio_mux_name, s->pin_rx.gpio_func);
+    PIN_FUNC_SELECT(s->pin_rx.gpio_mux_name, s->pin_rx.gpio_func);
 
     //set pullup (UART idle is VDD)
     PIN_PULLUP_EN(s->pin_rx.gpio_mux_name);
@@ -226,20 +226,22 @@ void Softuart_Intr_Handler(void *p)
       //therefore we have a start bit
 
       //wait till start bit is half over so we can sample the next one in the center
-      os_delay_us(s->bit_time/2);  
+      os_delay_us(s->bit_time/2);
 
       //now sample bits
       unsigned i;
       unsigned d = 0;
-      unsigned start_time = 0x7FFFFFFF & system_get_time();
-
+      //mark the start of the data bit pattern
+      uint32_t start_time = system_get_time();
       for(i = 0; i < 8; i ++ )
       {
-        while ((0x7FFFFFFF & system_get_time()) < (start_time + (s->bit_time*(i+1))))
-        {
-          //If system timer overflow, escape from while loop
-          if ((0x7FFFFFFF & system_get_time()) < start_time){break;}
-        }
+        //delay for bit timing
+        // NOTE signed arithmetic handles system_get_time() wrap-around
+        // NOTE using repeated calls to `os_delay_us` can accumulate overhead errors
+        // see https://forum.micropython.org/viewtopic.php?f=16&t=2204&start=10#p16935
+        int32_t end_time = (int32_t) (start_time + (i + 1)*s->bit_time);
+        while ( end_time - (int32_t)  system_get_time() > 0){};
+       
         //shift d to the right
         d >>= 1;
 
@@ -318,12 +320,14 @@ BOOL Softuart_Available(Softuart *s)
 // Returns true if something available, false if not.
 BOOL Softuart_rxWait(Softuart *s, uint32_t timeout_us)
 {
-    uint32_t start = system_get_time();
+    //handles system_get_time() wrap-around
+    int32_t when_timedout = (int32_t) system_get_time() + timeout_us;
     for (;;) {
         if (Softuart_Available(s)) {
             return true; // have at least 1 char ready for reading
         }
-        if (system_get_time() - start >= timeout_us) {
+        //handles system_get_time()-wrap around
+        if (when_timedout - (int32_t) system_get_time() <= 0) {
             return false; // timeout
         }
         ets_event_poll();
@@ -346,7 +350,6 @@ static inline u8 chbit(u8 data, u8 bit)
 void Softuart_Putchar(Softuart *s, char data)
 {
   unsigned i;
-  unsigned start_time = 0x7FFFFFFF & system_get_time();
 
   //if rs485 set tx enable
   if(s->is_rs485 == 1)
@@ -354,24 +357,26 @@ void Softuart_Putchar(Softuart *s, char data)
     GPIO_OUTPUT_SET(GPIO_ID_PIN(s->pin_rs485_tx_enable), 1);
   }
 
+  //mark the start of the data bit pattern
+  uint32_t start_time = system_get_time();
+  int32_t end_time; //calculated in loop
+
   //Start Bit
   GPIO_OUTPUT_SET(GPIO_ID_PIN(s->pin_tx.gpio_id), 0);
   for(i = 0; i <= 8; i ++ )
   {
-    while ((0x7FFFFFFF & system_get_time()) < (start_time + (s->bit_time*(i+1))))
-    {
-      //If system timer overflow, escape from while loop
-      if ((0x7FFFFFFF & system_get_time()) < start_time){break;}
-    }
+    //delay for bit timing
+    // NOTE signed arithmetic handles system_get_time() wrap-around
+    // NOTE using repeated calls to `os_delay_us` can accumulate overhead errors
+    // see https://forum.micropython.org/viewtopic.php?f=16&t=2204&start=10#p16935
+    end_time = (int32_t) (start_time + (i + 1)*s->bit_time);
+    while ( end_time - (int32_t)  system_get_time() > 0){};
     GPIO_OUTPUT_SET(GPIO_ID_PIN(s->pin_tx.gpio_id), chbit(data,1<<i));
   }
 
   // Stop bit
-  while ((0x7FFFFFFF & system_get_time()) < (start_time + (s->bit_time*9)))
-  {
-    //If system timer overflow, escape from while loop
-    if ((0x7FFFFFFF & system_get_time()) < start_time){break;}
-  }
+  end_time = (int32_t) (start_time + 9*s->bit_time);
+  while ( end_time - (int32_t)  system_get_time() > 0){};
   GPIO_OUTPUT_SET(GPIO_ID_PIN(s->pin_tx.gpio_id), 1);
 
   // Delay after byte, for new sync
@@ -387,7 +392,7 @@ void Softuart_Putchar(Softuart *s, char data)
 void Softuart_Puts(Softuart *s, const char *c )
 {
   while ( *c ) {
-        Softuart_Putchar(s,( u8 )*c++);
+    Softuart_Putchar(s,( u8 )*c++);
   }
 }
 
