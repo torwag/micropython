@@ -26,7 +26,7 @@
 
 #include STM32_HAL_H
 
-#include "py/obj.h"
+#include "py/runtime.h"
 #include "irq.h"
 #include "systick.h"
 #include "pybthread.h"
@@ -34,6 +34,7 @@
 // We provide our own version of HAL_Delay that calls __WFI while waiting, in
 // order to reduce power consumption.
 // Note: Upon entering this function we may or may not have the GIL.
+// TODO: make 2 versions of this, a simple one called HAL_Delay, and one for mp_hal_delay_ms.
 void HAL_Delay(uint32_t Delay) {
     if (query_irq() == IRQ_STATE_ENABLED) {
         // IRQs enabled, so can use systick counter to do the delay
@@ -42,6 +43,7 @@ void HAL_Delay(uint32_t Delay) {
         // Wraparound of tick is taken care of by 2's complement arithmetic.
         while (uwTick - start < Delay) {
             // Enter sleep mode, waiting for (at least) the SysTick interrupt.
+            mp_handle_pending();
             #if MICROPY_PY_THREAD
             if (pyb_thread_enabled) {
                 pyb_thread_yield();
