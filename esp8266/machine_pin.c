@@ -37,6 +37,7 @@
 #include "py/runtime.h"
 #include "py/gc.h"
 #include "py/mphal.h"
+#include "extmod/virtpin.h"
 #include "modmachine.h"
 
 #define GET_TRIGGER(phys_port) \
@@ -86,11 +87,15 @@ STATIC uint8_t pin_mode[16 + 1];
 // forward declaration
 STATIC const pin_irq_obj_t pin_irq_obj[16];
 
+// whether the irq is hard or soft
+STATIC bool pin_irq_is_hard[16];
+
 void pin_init0(void) {
     ETS_GPIO_INTR_DISABLE();
     ETS_GPIO_INTR_ATTACH(pin_intr_handler_iram, NULL);
     // disable all interrupts
     memset(&MP_STATE_PORT(pin_irq_handler)[0], 0, 16 * sizeof(mp_obj_t));
+    memset(pin_irq_is_hard, 0, sizeof(pin_irq_obj));
     for (int p = 0; p < 16; ++p) {
         GPIO_REG_WRITE(GPIO_STATUS_W1TC_ADDRESS, 1 << p);
         SET_TRIGGER(p, 0);
@@ -99,17 +104,23 @@ void pin_init0(void) {
 }
 
 void pin_intr_handler(uint32_t status) {
+    mp_sched_lock();
     gc_lock();
     status &= 0xffff;
     for (int p = 0; status; ++p, status >>= 1) {
         if (status & 1) {
             mp_obj_t handler = MP_STATE_PORT(pin_irq_handler)[p];
             if (handler != MP_OBJ_NULL) {
-                mp_call_function_1_protected(handler, MP_OBJ_FROM_PTR(&pyb_pin_obj[p]));
+                if (pin_irq_is_hard[p]) {
+                    mp_call_function_1_protected(handler, MP_OBJ_FROM_PTR(&pyb_pin_obj[p]));
+                } else {
+                    mp_sched_schedule(handler, MP_OBJ_FROM_PTR(&pyb_pin_obj[p]));
+                }
             }
         }
     }
     gc_unlock();
+    mp_sched_unlock();
 }
 
 pyb_pin_obj_t *mp_obj_get_pin_obj(mp_obj_t pin_in) {
@@ -343,10 +354,11 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(pyb_pin_high_obj, pyb_pin_high);
 
 // pin.irq(*, trigger, handler=None)
 STATIC mp_obj_t pyb_pin_irq(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    enum { ARG_trigger, ARG_handler };
+    enum { ARG_trigger, ARG_handler, ARG_hard };
     static const mp_arg_t allowed_args[] = {
         { MP_QSTR_trigger, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
         { MP_QSTR_handler, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+        { MP_QSTR_hard, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
     };
     pyb_pin_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
@@ -364,6 +376,7 @@ STATIC mp_obj_t pyb_pin_irq(size_t n_args, const mp_obj_t *pos_args, mp_map_t *k
         }
         ETS_GPIO_INTR_DISABLE();
         MP_STATE_PORT(pin_irq_handler)[self->phys_port] = handler;
+        pin_irq_is_hard[self->phys_port] = args[ARG_hard].u_bool;
         SET_TRIGGER(self->phys_port, args[ARG_trigger].u_int);
         GPIO_REG_WRITE(GPIO_STATUS_W1TC_ADDRESS, 1 << self->phys_port);
         ETS_GPIO_INTR_ENABLE();
@@ -373,6 +386,23 @@ STATIC mp_obj_t pyb_pin_irq(size_t n_args, const mp_obj_t *pos_args, mp_map_t *k
     return MP_OBJ_FROM_PTR(&pin_irq_obj[self->phys_port]);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_KW(pyb_pin_irq_obj, 1, pyb_pin_irq);
+
+STATIC mp_uint_t pin_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t arg, int *errcode);
+STATIC mp_uint_t pin_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t arg, int *errcode) {
+    (void)errcode;
+    pyb_pin_obj_t *self = self_in;
+
+    switch (request) {
+        case MP_PIN_READ: {
+            return pin_get(self->phys_port);
+        }
+        case MP_PIN_WRITE: {
+            pin_set(self->phys_port, arg);
+            return 0;
+        }
+    }
+    return -1;
+}
 
 STATIC const mp_map_elem_t pyb_pin_locals_dict_table[] = {
     // instance methods
@@ -396,12 +426,17 @@ STATIC const mp_map_elem_t pyb_pin_locals_dict_table[] = {
 
 STATIC MP_DEFINE_CONST_DICT(pyb_pin_locals_dict, pyb_pin_locals_dict_table);
 
+STATIC const mp_pin_p_t pin_pin_p = {
+    .ioctl = pin_ioctl,
+};
+
 const mp_obj_type_t pyb_pin_type = {
     { &mp_type_type },
     .name = MP_QSTR_Pin,
     .print = pyb_pin_print,
     .make_new = pyb_pin_make_new,
     .call = pyb_pin_call,
+    .protocol = &pin_pin_p,
     .locals_dict = (mp_obj_t)&pyb_pin_locals_dict,
 };
 

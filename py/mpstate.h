@@ -50,6 +50,16 @@ typedef struct mp_dynamic_compiler_t {
 extern mp_dynamic_compiler_t mp_dynamic_compiler;
 #endif
 
+// These are the values for sched_state
+#define MP_SCHED_IDLE (1)
+#define MP_SCHED_LOCKED (-1)
+#define MP_SCHED_PENDING (0) // 0 so it's a quick check in the VM
+
+typedef struct _mp_sched_item_t {
+    mp_obj_t func;
+    mp_obj_t arg;
+} mp_sched_item_t;
+
 // This structure hold information about the memory allocation system.
 typedef struct _mp_state_mem_t {
     #if MICROPY_MEM_STATS
@@ -129,6 +139,12 @@ typedef struct _mp_state_vm_t {
     // pending exception object (MP_OBJ_NULL if not pending)
     volatile mp_obj_t mp_pending_exception;
 
+    #if MICROPY_SCHEDULER
+    volatile int16_t sched_state;
+    uint16_t sched_sp;
+    mp_sched_item_t sched_stack[MICROPY_SCHEDULER_DEPTH];
+    #endif
+
     // current exception being handled, for sys.exc_info()
     #if MICROPY_PY_SYS_EXC_INFO
     mp_obj_base_t *cur_exception;
@@ -160,9 +176,9 @@ typedef struct _mp_state_vm_t {
     mp_obj_t lwip_slip_stream;
     #endif
 
-    #if MICROPY_FSUSERMOUNT
-    // for user-mountable block device (max fixed at compile time)
-    struct _fs_user_mount_t *fs_user_mount[MICROPY_FATFS_VOLUMES];
+    #if MICROPY_VFS
+    struct _mp_vfs_mount_t *vfs_cur;
+    struct _mp_vfs_mount_t *vfs_mount_table;
     #endif
 
     //

@@ -1,10 +1,11 @@
 /*
- * This file is part of the Micro Python project, http://micropython.org/
+ * This file is part of the MicroPython project, http://micropython.org/
  *
  * The MIT License (MIT)
  *
  * Copyright (c) 2013, 2014 Damien P. George
  * Copyright (c) 2015 Galen Hazelwood
+ * Copyright (c) 2015-2016 Paul Sokolovsky
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -1172,6 +1173,7 @@ STATIC const mp_map_elem_t lwip_socket_locals_dict_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR_makefile), (mp_obj_t)&lwip_socket_makefile_obj },
 
     { MP_OBJ_NEW_QSTR(MP_QSTR_read), (mp_obj_t)&mp_stream_read_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_readinto), (mp_obj_t)&mp_stream_readinto_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_readline), (mp_obj_t)&mp_stream_unbuffered_readline_obj},
     { MP_OBJ_NEW_QSTR(MP_QSTR_write), (mp_obj_t)&mp_stream_write_obj },
 };

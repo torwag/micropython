@@ -69,13 +69,22 @@ typedef struct _rule_t {
 } rule_t;
 
 enum {
+// define rules with a compile function
 #define DEF_RULE(rule, comp, kind, ...) RULE_##rule,
+#define DEF_RULE_NC(rule, kind, ...)
 #include "py/grammar.h"
 #undef DEF_RULE
-    RULE_maximum_number_of,
+#undef DEF_RULE_NC
     RULE_string, // special node for non-interned string
     RULE_bytes, // special node for non-interned bytes
     RULE_const_object, // special node for a constant, generic Python object
+
+// define rules without a compile function
+#define DEF_RULE(rule, comp, kind, ...)
+#define DEF_RULE_NC(rule, kind, ...) RULE_##rule,
+#include "py/grammar.h"
+#undef DEF_RULE
+#undef DEF_RULE_NC
 };
 
 #define or(n)                   (RULE_ACT_OR | n)
@@ -90,8 +99,10 @@ enum {
 #define opt_rule(r)             (RULE_ARG_OPT_RULE | RULE_##r)
 #ifdef USE_RULE_NAME
 #define DEF_RULE(rule, comp, kind, ...) static const rule_t rule_##rule = { RULE_##rule, kind, #rule, { __VA_ARGS__ } };
+#define DEF_RULE_NC(rule, kind, ...) static const rule_t rule_##rule = { RULE_##rule, kind, #rule, { __VA_ARGS__ } };
 #else
 #define DEF_RULE(rule, comp, kind, ...) static const rule_t rule_##rule = { RULE_##rule, kind, { __VA_ARGS__ } };
+#define DEF_RULE_NC(rule, kind, ...) static const rule_t rule_##rule = { RULE_##rule, kind, { __VA_ARGS__ } };
 #endif
 #include "py/grammar.h"
 #undef or
@@ -103,11 +114,25 @@ enum {
 #undef opt_rule
 #undef one_or_more
 #undef DEF_RULE
+#undef DEF_RULE_NC
 
 STATIC const rule_t *const rules[] = {
+// define rules with a compile function
 #define DEF_RULE(rule, comp, kind, ...) &rule_##rule,
+#define DEF_RULE_NC(rule, kind, ...)
 #include "py/grammar.h"
 #undef DEF_RULE
+#undef DEF_RULE_NC
+    NULL, // RULE_string
+    NULL, // RULE_bytes
+    NULL, // RULE_const_object
+
+// define rules without a compile function
+#define DEF_RULE(rule, comp, kind, ...)
+#define DEF_RULE_NC(rule, kind, ...) &rule_##rule,
+#include "py/grammar.h"
+#undef DEF_RULE
+#undef DEF_RULE_NC
 };
 
 typedef struct _rule_stack_t {
@@ -215,7 +240,6 @@ STATIC void push_rule(parser_t *parser, size_t src_line, const rule_t *rule, siz
 STATIC void push_rule_from_arg(parser_t *parser, size_t arg) {
     assert((arg & RULE_ARG_KIND_MASK) == RULE_ARG_RULE || (arg & RULE_ARG_KIND_MASK) == RULE_ARG_OPT_RULE);
     size_t rule_id = arg & RULE_ARG_ARG_MASK;
-    assert(rule_id < RULE_maximum_number_of);
     push_rule(parser, parser->lexer->tok_line, rules[rule_id], 0);
 }
 
@@ -295,8 +319,9 @@ void mp_parse_node_print(mp_parse_node_t pn, size_t indent) {
             case MP_PARSE_NODE_ID: printf("id(%s)\n", qstr_str(arg)); break;
             case MP_PARSE_NODE_STRING: printf("str(%s)\n", qstr_str(arg)); break;
             case MP_PARSE_NODE_BYTES: printf("bytes(%s)\n", qstr_str(arg)); break;
-            case MP_PARSE_NODE_TOKEN: printf("tok(%u)\n", (uint)arg); break;
-            default: assert(0);
+            default:
+                assert(MP_PARSE_NODE_LEAF_KIND(pn) == MP_PARSE_NODE_TOKEN);
+                printf("tok(%u)\n", (uint)arg); break;
         }
     } else {
         // node must be a mp_parse_node_struct_t
@@ -870,38 +895,30 @@ mp_parse_tree_t mp_parse(mp_lexer_t *lex, mp_parse_input_kind_t input_kind) {
 
                 // progress through the rule
                 for (; i < n; ++i) {
-                    switch (rule->arg[i] & RULE_ARG_KIND_MASK) {
-                        case RULE_ARG_TOK: {
-                            // need to match a token
-                            mp_token_kind_t tok_kind = rule->arg[i] & RULE_ARG_ARG_MASK;
-                            if (lex->tok_kind == tok_kind) {
-                                // matched token
-                                if (tok_kind == MP_TOKEN_NAME) {
-                                    push_result_token(&parser, rule);
-                                }
-                                mp_lexer_to_next(lex);
-                            } else {
-                                // failed to match token
-                                if (i > 0) {
-                                    // already eaten tokens so can't backtrack
-                                    goto syntax_error;
-                                } else {
-                                    // this rule failed, so backtrack
-                                    backtrack = true;
-                                    goto next_rule;
-                                }
+                    if ((rule->arg[i] & RULE_ARG_KIND_MASK) == RULE_ARG_TOK) {
+                        // need to match a token
+                        mp_token_kind_t tok_kind = rule->arg[i] & RULE_ARG_ARG_MASK;
+                        if (lex->tok_kind == tok_kind) {
+                            // matched token
+                            if (tok_kind == MP_TOKEN_NAME) {
+                                push_result_token(&parser, rule);
                             }
-                            break;
+                            mp_lexer_to_next(lex);
+                        } else {
+                            // failed to match token
+                            if (i > 0) {
+                                // already eaten tokens so can't backtrack
+                                goto syntax_error;
+                            } else {
+                                // this rule failed, so backtrack
+                                backtrack = true;
+                                goto next_rule;
+                            }
                         }
-                        case RULE_ARG_RULE:
-                        case RULE_ARG_OPT_RULE:
-                        rule_and_no_other_choice:
-                            push_rule(&parser, rule_src_line, rule, i + 1); // save this and-rule
-                            push_rule_from_arg(&parser, rule->arg[i]); // push child of and-rule
-                            goto next_rule;
-                        default:
-                            assert(0);
-                            goto rule_and_no_other_choice; // to help flow control analysis
+                    } else {
+                        push_rule(&parser, rule_src_line, rule, i + 1); // save this and-rule
+                        push_rule_from_arg(&parser, rule->arg[i]); // push child of and-rule
+                        goto next_rule;
                     }
                 }
 
@@ -973,7 +990,9 @@ mp_parse_tree_t mp_parse(mp_lexer_t *lex, mp_parse_input_kind_t input_kind) {
                 break;
             }
 
-            case RULE_ACT_LIST: {
+            default: {
+                assert((rule->act & RULE_ACT_KIND_MASK) == RULE_ACT_LIST);
+
                 // n=2 is: item item*
                 // n=1 is: item (sep item)*
                 // n=3 is: item (sep item)* [sep]
@@ -1011,32 +1030,27 @@ mp_parse_tree_t mp_parse(mp_lexer_t *lex, mp_parse_input_kind_t input_kind) {
                 } else {
                     for (;;) {
                         size_t arg = rule->arg[i & 1 & n];
-                        switch (arg & RULE_ARG_KIND_MASK) {
-                            case RULE_ARG_TOK:
-                                if (lex->tok_kind == (arg & RULE_ARG_ARG_MASK)) {
-                                    if (i & 1 & n) {
-                                        // separators which are tokens are not pushed to result stack
-                                    } else {
-                                        push_result_token(&parser, rule);
-                                    }
-                                    mp_lexer_to_next(lex);
-                                    // got element of list, so continue parsing list
-                                    i += 1;
+                        if ((arg & RULE_ARG_KIND_MASK) == RULE_ARG_TOK) {
+                            if (lex->tok_kind == (arg & RULE_ARG_ARG_MASK)) {
+                                if (i & 1 & n) {
+                                    // separators which are tokens are not pushed to result stack
                                 } else {
-                                    // couldn't get element of list
-                                    i += 1;
-                                    backtrack = true;
-                                    goto list_backtrack;
+                                    push_result_token(&parser, rule);
                                 }
-                                break;
-                            case RULE_ARG_RULE:
-                            rule_list_no_other_choice:
-                                push_rule(&parser, rule_src_line, rule, i + 1); // save this list-rule
-                                push_rule_from_arg(&parser, arg); // push child of list-rule
-                                goto next_rule;
-                            default:
-                                assert(0);
-                                goto rule_list_no_other_choice; // to help flow control analysis
+                                mp_lexer_to_next(lex);
+                                // got element of list, so continue parsing list
+                                i += 1;
+                            } else {
+                                // couldn't get element of list
+                                i += 1;
+                                backtrack = true;
+                                goto list_backtrack;
+                            }
+                        } else {
+                            assert((arg & RULE_ARG_KIND_MASK) == RULE_ARG_RULE);
+                            push_rule(&parser, rule_src_line, rule, i + 1); // save this list-rule
+                            push_rule_from_arg(&parser, arg); // push child of list-rule
+                            goto next_rule;
                         }
                     }
                 }
@@ -1062,9 +1076,6 @@ mp_parse_tree_t mp_parse(mp_lexer_t *lex, mp_parse_input_kind_t input_kind) {
                 }
                 break;
             }
-
-            default:
-                assert(0);
         }
     }
 
