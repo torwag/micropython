@@ -46,6 +46,18 @@ void error_check(bool status, const char *msg) {
     }
 }
 
+STATIC mp_obj_t esp_uart_swap() {
+    system_uart_swap();
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(esp_uart_swap_obj, esp_uart_swap);
+
+STATIC mp_obj_t esp_uart_de_swap() {
+    system_uart_de_swap();
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(esp_uart_de_swap_obj, esp_uart_de_swap);
+
 STATIC mp_obj_t esp_osdebug(mp_obj_t val) {
     if (val == mp_const_none) {
         uart_os_config(-1);
@@ -350,6 +362,8 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_2(esp_set_native_code_location_obj, esp_set_nativ
 STATIC const mp_map_elem_t esp_module_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_esp) },
 
+    { MP_OBJ_NEW_QSTR(MP_QSTR_uart_swap), (mp_obj_t)&esp_uart_swap_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_uart_de_swap), (mp_obj_t)&esp_uart_de_swap_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_osdebug), (mp_obj_t)&esp_osdebug_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_sleep_type), (mp_obj_t)&esp_sleep_type_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_deepsleep), (mp_obj_t)&esp_deepsleep_obj },
